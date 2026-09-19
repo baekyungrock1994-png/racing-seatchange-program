@@ -13,16 +13,16 @@ export class SeatManager {
   ): SeatConfig {
     const seats: Record<string, Seat> = {};
 
-    const paddingX = 40;
-    const paddingY = 50;
+    const paddingX = 50;
+    const paddingY = 80;
     const availableWidth = classroomArea.width - paddingX * 2;
     const availableHeight = classroomArea.height - paddingY * 2;
 
     const slotWidth = availableWidth / cols;
     const slotHeight = availableHeight / rows;
 
-    const seatWidth = Math.min(slotWidth * 0.75, 90);
-    const seatHeight = Math.min(slotHeight * 0.75, 85);
+    const seatWidth = Math.min(slotWidth * 0.75, 75);
+    const seatHeight = Math.min(slotHeight * 0.75, 65);
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {

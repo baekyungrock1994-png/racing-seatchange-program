@@ -3,150 +3,155 @@ import { CircuitMapData, CircuitThemeId, Obstacle, ItemBox } from '@/types/game'
 import { THEMES } from '@/constants/themes';
 
 /**
- * 트랙을 벗어날 수 없도록 양옆 가드레일이 완벽히 가이드하며,
- * 출발선 -> 메인 직선로 -> 헤어핀 코너 -> S자 슬라럼 -> 교실 진입로 -> 교실 좌석 구역으로
- * 물 흐르듯이 자연스럽게 연결되는 3200x2400 대형 서킷 맵 생성기입니다.
+ * [정밀 서킷 기하학 설계]
+ * 1. 카트 3대가 나란히 주행할 수 있는 균일한 트랙 폭: 정확히 170px
+ * 2. 출발선 -> 1번 코너 -> 2번 코너 -> S자 슬라럼 -> 결승선(FINISH) -> 교실로 단 하나의 막힘없는 경로
+ * 3. 도로 바깥으로 절대 이탈할 수 없는 완벽한 좌우 밀폐 가드레일
  */
 export class CircuitMaps {
   static getMap(themeId: CircuitThemeId): CircuitMapData {
     const theme = THEMES[themeId] || THEMES.classic;
-    const worldWidth = 3200;
-    const worldHeight = 2400;
+    const worldWidth = 2400;
+    const worldHeight = 1600;
 
-    // 1. 출발선 (남서쪽 트랙 내부)
+    const TRACK_WIDTH = 170; // 카트 3대 폭 (34px * 3 + 간격)
+    const WALL_THICK = 24;
+
+    // 1. 출발선 (남서쪽 트랙 직선로)
     const startLine = {
-      x: 180,
-      y: 1950,
-      width: 340,
-      height: 60,
+      x: 200,
+      y: 1250,
+      width: TRACK_WIDTH,
+      height: 40,
       angle: 0 // 북쪽을 바라보고 출발
     };
 
-    // 2. 결승선 (교실 정문 입구)
+    // 2. 결승선 (트랙 끝 지점, 북쪽 교실 진입구)
     const finishLine = {
-      x: 1980,
-      y: 1250,
-      width: 440,
-      height: 60
+      x: 1430,
+      y: 500,
+      width: TRACK_WIDTH,
+      height: 40
     };
 
-    // 3. 교실 좌석 구역 (우측 상단 넉넉한 공간)
+    // 3. 교실 좌석 구역 (결승선 바로 위쪽)
     const classroomArea = {
-      x: 1950,
-      y: 160,
-      width: 1150,
-      height: 1050
+      x: 1200,
+      y: 50,
+      width: 1000,
+      height: 440
     };
 
-    // 4. 완벽한 트랙 밀폐 가드레일 (서킷 밖으로 절대 이탈 불가)
+    // 4. 단 하나의 단절 없는 트랙을 감싸는 완벽한 가드레일 벽들
     const walls: Obstacle[] = [
-      // === 맵 최외곽 방벽 ===
-      { id: 'w_out_top', type: 'wall', x: 0, y: 0, width: worldWidth, height: 60, color: theme.wallColor },
-      { id: 'w_out_bottom', type: 'wall', x: 0, y: worldHeight - 60, width: worldWidth, height: 60, color: theme.wallColor },
-      { id: 'w_out_left', type: 'wall', x: 0, y: 0, width: 60, height: worldHeight, color: theme.wallColor },
-      { id: 'w_out_right', type: 'wall', x: worldWidth - 60, y: 0, width: 60, height: worldHeight, color: theme.wallColor },
+      // --- 트랙 구간 1: 출발선 및 서쪽 직선 주로 (x: 200 ~ 370, y: 370 ~ 1350) ---
+      // 뒤쪽 막힘 벽 (출발선 뒤로 후진 불가)
+      { id: 'w_start_back', type: 'wall', x: 200 - WALL_THICK, y: 1350, width: TRACK_WIDTH + WALL_THICK * 2, height: WALL_THICK, color: theme.wallColor },
+      // 좌측 외벽 (출발선 ~ 1번 코너)
+      { id: 'w_s1_left', type: 'wall', x: 200 - WALL_THICK, y: 200 - WALL_THICK, width: WALL_THICK, height: 1150 + WALL_THICK, color: theme.wallColor },
+      // 우측 내측벽 (출발선 ~ 1번 코너 안쪽)
+      { id: 'w_s1_right', type: 'wall', x: 200 + TRACK_WIDTH, y: 370, width: WALL_THICK, height: 980, color: theme.wallColor },
 
-      // === 구간 1: 출발선 뒤쪽 차단벽 (뒤로 후진 불가) ===
-      { id: 'w_start_back', type: 'wall', x: 60, y: 2080, width: 520, height: 60, color: theme.wallColor },
+      // --- 트랙 구간 2: 1번 코너 및 상단 수평 주로 (x: 200 ~ 1000, y: 200 ~ 370) ---
+      // 상단 외벽
+      { id: 'w_s2_top', type: 'wall', x: 200 - WALL_THICK, y: 200 - WALL_THICK, width: 800 + TRACK_WIDTH + WALL_THICK * 2, height: WALL_THICK, color: theme.wallColor },
+      // 하단 내측벽
+      { id: 'w_s2_bottom', type: 'wall', x: 200 + TRACK_WIDTH, y: 200 + TRACK_WIDTH, width: 460, height: WALL_THICK, color: theme.wallColor },
 
-      // === 구간 1: 1차 직선로 우측 가드레일 (출발선 ~ 1번 코너) ===
-      { id: 'w_trk_1_r', type: 'wall', x: 580, y: 480, width: 60, height: 1660, color: theme.wallColor },
+      // --- 트랙 구간 3: 2번 코너 및 1차 하강 주로 (x: 830 ~ 1000, y: 370 ~ 900) ---
+      // 우측 외벽
+      { id: 'w_s3_right', type: 'wall', x: 1000, y: 200 - WALL_THICK, width: WALL_THICK, height: 700 + TRACK_WIDTH + WALL_THICK * 2, color: theme.wallColor },
+      // 좌측 내측벽
+      { id: 'w_s3_left', type: 'wall', x: 830 - WALL_THICK, y: 370, width: WALL_THICK, height: 530, color: theme.wallColor },
 
-      // === 구간 2: 1번 코너 (상단 우회전) 내측/외측 가드레일 ===
-      // 외측은 w_out_top (y: 0~60), w_out_left (x: 0~60)
-      // 상단 수평 트랙의 하단 가드레일
-      { id: 'w_top_straight_bottom', type: 'wall', x: 580, y: 480, width: 1300, height: 60, color: theme.wallColor },
+      // --- 트랙 구간 4: 3번 코너 및 중앙 수평 주로 (x: 830 ~ 1600, y: 900 ~ 1070) ---
+      // 하단 외벽
+      { id: 'w_s4_bottom', type: 'wall', x: 830 - WALL_THICK, y: 1070, width: 770 + WALL_THICK * 2, height: WALL_THICK, color: theme.wallColor },
+      // 상단 내측벽
+      { id: 'w_s4_top', type: 'wall', x: 1000, y: 900 - WALL_THICK, width: 430, height: WALL_THICK, color: theme.wallColor },
 
-      // === 구간 3: 중앙 슬라럼 가벽들 (S자 코너링 유도) ===
-      // 우측 코너에서 아래로 꺾이는 외측 벽
-      { id: 'w_turn2_out', type: 'wall', x: 1900, y: 60, width: 60, height: 1100, color: theme.wallColor },
-      // 중앙 지그재그 유도 벽 1
-      { id: 'w_slalom_1', type: 'wall', x: 1050, y: 850, width: 550, height: 60, color: theme.wallColor },
-      // 중앙 지그재그 유도 벽 2
-      { id: 'w_slalom_2', type: 'wall', x: 1400, y: 1250, width: 560, height: 60, color: theme.wallColor },
-      // 하단 턴 유도 벽
-      { id: 'w_slalom_3', type: 'wall', x: 1050, y: 1650, width: 550, height: 60, color: theme.wallColor },
+      // --- 트랙 구간 5: 4번 코너 및 교실 진입 상승 주로 (x: 1430 ~ 1600, y: 500 ~ 900) ---
+      // 우측 외벽
+      { id: 'w_s5_right', type: 'wall', x: 1600, y: 500, width: WALL_THICK, height: 570 + WALL_THICK, color: theme.wallColor },
+      // 좌측 내측벽
+      { id: 'w_s5_left', type: 'wall', x: 1430 - WALL_THICK, y: 500, width: WALL_THICK, height: 400 - WALL_THICK, color: theme.wallColor },
 
-      // === 구간 4: 교실 진입로 (하단에서 북쪽 교실 문으로 직진) ===
-      // 교실 진입로 좌측 가드레일
-      { id: 'w_entry_left', type: 'wall', x: 1920, y: 1350, width: 60, height: 800, color: theme.wallColor },
-      // 교실 진입로 우측 가드레일
-      { id: 'w_entry_right', type: 'wall', x: 2450, y: 1350, width: 60, height: 800, color: theme.wallColor },
-      // 진입로 하단 차단벽
-      { id: 'w_entry_bottom', type: 'wall', x: 1920, y: 2150, width: 590, height: 60, color: theme.wallColor },
-
-      // === 구간 5: 교실 영역 외벽 (교실은 정문 게이트로만 진입 가능) ===
-      // 교실 좌측 벽 (정문 게이트 제외하고 밀폐)
-      { id: 'w_class_left', type: 'wall', x: 1920, y: 60, width: 60, height: 1190, color: '#64748B' },
-      // 교실 하단 벽 (좌측)
-      { id: 'w_class_bot_left', type: 'wall', x: 1920, y: 1250, width: 60, height: 60, color: '#64748B' },
-      // 교실 하단 벽 (우측 - 정문 입구 440px 열어둠)
-      { id: 'w_class_bot_right', type: 'wall', x: 2420, y: 1250, width: 720, height: 60, color: '#64748B' }
+      // --- 교실 영역 외벽 (남쪽 입구 x: 1430 ~ 1600 만 뚫려 있음) ---
+      // 교실 상단 벽
+      { id: 'w_cls_top', type: 'wall', x: 1200 - WALL_THICK, y: 50 - WALL_THICK, width: 1000 + WALL_THICK * 2, height: WALL_THICK, color: '#64748B' },
+      // 교실 좌측 벽
+      { id: 'w_cls_left', type: 'wall', x: 1200 - WALL_THICK, y: 50 - WALL_THICK, width: WALL_THICK, height: 440 + WALL_THICK, color: '#64748B' },
+      // 교실 우측 벽
+      { id: 'w_cls_right', type: 'wall', x: 2200, y: 50 - WALL_THICK, width: WALL_THICK, height: 440 + WALL_THICK, color: '#64748B' },
+      // 교실 하단 벽 (입구 좌측: x: 1200 ~ 1430)
+      { id: 'w_cls_bot_l', type: 'wall', x: 1200 - WALL_THICK, y: 490, width: 230 + WALL_THICK, height: WALL_THICK, color: '#64748B' },
+      // 교실 하단 벽 (입구 우측: x: 1600 ~ 2200)
+      { id: 'w_cls_bot_r', type: 'wall', x: 1600, y: 490, width: 600 + WALL_THICK, height: WALL_THICK, color: '#64748B' }
     ];
 
-    // 테마별 고유 장애물 배치 (트랙 중간 적재적소에 배치)
-    const themeObstacles: Obstacle[] = [];
+    // 도로 중간 고유 테마 장애물 (카트 3대 폭 중 1대 분량만 차지하여 회피 가능)
+    const obstacles: Obstacle[] = [];
     if (themeId === 'classic') {
-      themeObstacles.push(
-        { id: 'oil_1', type: 'oil', x: 300, y: 1400, width: 100, height: 100, color: '#0F172A' },
-        { id: 'oil_2', type: 'oil', x: 1100, y: 250, width: 110, height: 110, color: '#0F172A' },
-        { id: 'rock_1', type: 'rock', x: 1650, y: 700, width: 80, height: 80, color: '#475569' },
-        { id: 'oil_3', type: 'oil', x: 1250, y: 1450, width: 100, height: 100, color: '#0F172A' },
-        { id: 'rock_2', type: 'rock', x: 2150, y: 1750, width: 85, height: 85, color: '#475569' }
+      obstacles.push(
+        { id: 'obs_1', type: 'oil', x: 270, y: 800, width: 60, height: 60, color: '#0F172A' },
+        { id: 'obs_2', type: 'rock', x: 600, y: 260, width: 50, height: 50, color: '#475569' },
+        { id: 'obs_3', type: 'oil', x: 890, y: 650, width: 60, height: 60, color: '#0F172A' },
+        { id: 'obs_4', type: 'oil', x: 1250, y: 960, width: 60, height: 60, color: '#0F172A' },
+        { id: 'obs_5', type: 'rock', x: 1490, y: 700, width: 50, height: 50, color: '#475569' }
       );
     } else if (themeId === 'classroom') {
-      themeObstacles.push(
-        { id: 'milk_1', type: 'oil', x: 300, y: 1350, width: 110, height: 110, color: '#F8FAFC' },
-        { id: 'eraser_1', type: 'rock', x: 1050, y: 240, width: 130, height: 70, color: '#F43F5E' },
-        { id: 'eraser_2', type: 'rock', x: 1680, y: 750, width: 130, height: 70, color: '#3B82F6' },
-        { id: 'milk_2', type: 'oil', x: 1300, y: 1450, width: 120, height: 120, color: '#F8FAFC' },
-        { id: 'eraser_3', type: 'rock', x: 2150, y: 1750, width: 130, height: 70, color: '#10B981' }
+      obstacles.push(
+        { id: 'obs_1', type: 'oil', x: 260, y: 800, width: 70, height: 70, color: '#F8FAFC' }, // 우유
+        { id: 'obs_2', type: 'rock', x: 600, y: 260, width: 65, height: 40, color: '#F43F5E' }, // 지우개
+        { id: 'obs_3', type: 'oil', x: 890, y: 650, width: 70, height: 70, color: '#F8FAFC' },
+        { id: 'obs_4', type: 'rock', x: 1250, y: 960, width: 65, height: 40, color: '#3B82F6' },
+        { id: 'obs_5', type: 'oil', x: 1490, y: 700, width: 70, height: 70, color: '#F8FAFC' }
       );
     } else if (themeId === 'space') {
-      themeObstacles.push(
-        { id: 'warp_1', type: 'speed_pad', x: 300, y: 1250, width: 100, height: 140, color: '#06B6D4' },
-        { id: 'asteroid_1', type: 'rock', x: 1150, y: 240, width: 90, height: 90, color: '#4C1D95' },
-        { id: 'warp_2', type: 'speed_pad', x: 1650, y: 1050, width: 100, height: 140, color: '#06B6D4' },
-        { id: 'asteroid_2', type: 'rock', x: 1250, y: 1450, width: 90, height: 90, color: '#4C1D95' },
-        { id: 'warp_3', type: 'speed_pad', x: 2150, y: 1700, width: 100, height: 140, color: '#06B6D4' }
+      obstacles.push(
+        { id: 'obs_1', type: 'speed_pad', x: 260, y: 800, width: 55, height: 80, color: '#06B6D4' },
+        { id: 'obs_2', type: 'rock', x: 600, y: 260, width: 50, height: 50, color: '#4C1D95' },
+        { id: 'obs_3', type: 'speed_pad', x: 890, y: 650, width: 55, height: 80, color: '#06B6D4' },
+        { id: 'obs_4', type: 'rock', x: 1250, y: 960, width: 50, height: 50, color: '#4C1D95' },
+        { id: 'obs_5', type: 'speed_pad', x: 1490, y: 700, width: 55, height: 80, color: '#06B6D4' }
       );
     } else if (themeId === 'ice') {
-      themeObstacles.push(
-        { id: 'ice_1', type: 'ice_patch', x: 260, y: 1250, width: 180, height: 180, color: '#E0F2FE' },
-        { id: 'snow_1', type: 'rock', x: 1150, y: 240, width: 90, height: 90, color: '#FFFFFF' },
-        { id: 'ice_2', type: 'ice_patch', x: 1550, y: 1000, width: 190, height: 190, color: '#E0F2FE' },
-        { id: 'snow_2', type: 'rock', x: 1250, y: 1450, width: 90, height: 90, color: '#FFFFFF' },
-        { id: 'ice_3', type: 'ice_patch', x: 2100, y: 1650, width: 180, height: 180, color: '#E0F2FE' }
+      obstacles.push(
+        { id: 'obs_1', type: 'ice_patch', x: 250, y: 800, width: 80, height: 80, color: '#E0F2FE' },
+        { id: 'obs_2', type: 'rock', x: 600, y: 260, width: 50, height: 50, color: '#FFFFFF' },
+        { id: 'obs_3', type: 'ice_patch', x: 880, y: 650, width: 80, height: 80, color: '#E0F2FE' },
+        { id: 'obs_4', type: 'rock', x: 1250, y: 960, width: 50, height: 50, color: '#FFFFFF' },
+        { id: 'obs_5', type: 'ice_patch', x: 1480, y: 700, width: 80, height: 80, color: '#E0F2FE' }
       );
     } else if (themeId === 'colosseum') {
-      themeObstacles.push(
-        { id: 'fire_1', type: 'oil', x: 300, y: 1300, width: 120, height: 120, color: '#EA580C' },
-        { id: 'pillar_1', type: 'rock', x: 1150, y: 240, width: 90, height: 90, color: '#FEF08A' },
-        { id: 'fire_2', type: 'oil', x: 1650, y: 950, width: 120, height: 120, color: '#EA580C' },
-        { id: 'pillar_2', type: 'rock', x: 1250, y: 1450, width: 90, height: 90, color: '#FEF08A' },
-        { id: 'fire_3', type: 'oil', x: 2150, y: 1700, width: 120, height: 120, color: '#EA580C' }
+      obstacles.push(
+        { id: 'obs_1', type: 'oil', x: 260, y: 800, width: 65, height: 65, color: '#EA580C' },
+        { id: 'obs_2', type: 'rock', x: 600, y: 260, width: 50, height: 50, color: '#FEF08A' },
+        { id: 'obs_3', type: 'oil', x: 890, y: 650, width: 65, height: 65, color: '#EA580C' },
+        { id: 'obs_4', type: 'rock', x: 1250, y: 960, width: 50, height: 50, color: '#FEF08A' },
+        { id: 'obs_5', type: 'oil', x: 1490, y: 700, width: 65, height: 65, color: '#EA580C' }
       );
     } else if (themeId === 'europe') {
-      themeObstacles.push(
-        { id: 'fountain_1', type: 'rock', x: 300, y: 1300, width: 110, height: 110, color: '#38BDF8' },
-        { id: 'cafe_1', type: 'wall', x: 1150, y: 240, width: 100, height: 90, color: '#713F12' },
-        { id: 'fountain_2', type: 'rock', x: 1650, y: 950, width: 110, height: 110, color: '#38BDF8' },
-        { id: 'cafe_2', type: 'wall', x: 1250, y: 1450, width: 90, height: 90, color: '#713F12' },
-        { id: 'fountain_3', type: 'rock', x: 2150, y: 1700, width: 110, height: 110, color: '#38BDF8' }
+      obstacles.push(
+        { id: 'obs_1', type: 'rock', x: 260, y: 800, width: 60, height: 60, color: '#38BDF8' },
+        { id: 'obs_2', type: 'wall', x: 600, y: 260, width: 50, height: 50, color: '#713F12' },
+        { id: 'obs_3', type: 'rock', x: 890, y: 650, width: 60, height: 60, color: '#38BDF8' },
+        { id: 'obs_4', type: 'wall', x: 1250, y: 960, width: 50, height: 50, color: '#713F12' },
+        { id: 'obs_5', type: 'rock', x: 1490, y: 700, width: 60, height: 60, color: '#38BDF8' }
       );
     }
 
-    // 아이템 상자 (? 박스) 배치
+    // 아이템 상자 (? 박스) 배치 - 트랙 정중앙에 균일하게 배치
     const itemBoxes: ItemBox[] = [
-      { id: 'ib_1', x: 350, y: 1650, size: 38, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_2', x: 350, y: 900, size: 38, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_3', x: 1000, y: 270, size: 38, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_4', x: 1550, y: 270, size: 38, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_5', x: 1750, y: 650, size: 38, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_6', x: 1250, y: 1050, size: 38, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_7', x: 1750, y: 1450, size: 38, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_8', x: 2200, y: 1900, size: 38, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_9', x: 2200, y: 1450, size: 38, isAvailable: true, respawnTimer: 0 }
+      { id: 'ib_1', x: 285, y: 1050, size: 34, isAvailable: true, respawnTimer: 0 },
+      { id: 'ib_2', x: 285, y: 550, size: 34, isAvailable: true, respawnTimer: 0 },
+      { id: 'ib_3', x: 500, y: 285, size: 34, isAvailable: true, respawnTimer: 0 },
+      { id: 'ib_4', x: 750, y: 285, size: 34, isAvailable: true, respawnTimer: 0 },
+      { id: 'ib_5', x: 915, y: 500, size: 34, isAvailable: true, respawnTimer: 0 },
+      { id: 'ib_6', x: 915, y: 800, size: 34, isAvailable: true, respawnTimer: 0 },
+      { id: 'ib_7', x: 1150, y: 985, size: 34, isAvailable: true, respawnTimer: 0 },
+      { id: 'ib_8', x: 1400, y: 985, size: 34, isAvailable: true, respawnTimer: 0 },
+      { id: 'ib_9', x: 1515, y: 750, size: 34, isAvailable: true, respawnTimer: 0 }
     ];
 
     return {
@@ -168,7 +173,7 @@ export class CircuitMaps {
       classroomArea,
       trackPolygons: [],
       walls,
-      obstacles: themeObstacles,
+      obstacles,
       itemBoxes
     };
   }
