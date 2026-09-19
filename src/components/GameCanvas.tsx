@@ -102,65 +102,26 @@ export function GameCanvas({
     };
   }, [room.status]);
 
-  const duelProcessedRef = useRef<string | null>(null);
-
-  // 주사위 대결(Dice Duel) 결과에 따른 승자 안착 및 패자 통로 자동 사출 처리
+  // 서버 미착석 상태와 로컬 물리 상태 실시간 동기화
   useEffect(() => {
-    const activeDuel = room.activeDuel;
-    if (!activeDuel || !localPlayerRef.current) return;
-
-    const p = localPlayerRef.current;
-    if (activeDuel.id !== duelProcessedRef.current) {
-      duelProcessedRef.current = activeDuel.id;
-
-      if (activeDuel.loserId === p.id) {
-        // 패자: 3.0초 주사위 롤링 직후 상자 밖 아래 통로로 안전하게 사출 및 조작 복구
-        const timer = setTimeout(() => {
-          const contestedSeat = room.seatConfig?.seats?.[activeDuel.seatId];
-          const exitY = (contestedSeat ? contestedSeat.y + contestedSeat.height / 2 : p.y) + 60;
-          p.isSeated = false;
-          p.seatedId = null;
-          p.x = contestedSeat ? contestedSeat.x : p.x;
-          p.y = exitY;
-          p.angle = 180;
-          p.speed = 0;
-          p.vx = 0;
-          p.vy = 0;
-          localPlayerRef.current = { ...p };
-          SyncBridge.updatePlayerPosition(room.code, p);
-          SyncBridge.releasePlayerFromSeat(room.code, p.id);
-        }, 3100);
-        return () => clearTimeout(timer);
-      } else if (activeDuel.winnerId === p.id) {
-        // 승자: 상자 중앙에 영구 안착
-        const timer = setTimeout(() => {
-          const contestedSeat = room.seatConfig?.seats?.[activeDuel.seatId];
-          if (contestedSeat) {
-            p.isSeated = true;
-            p.seatedId = activeDuel.seatId;
-            p.x = contestedSeat.x;
-            p.y = contestedSeat.y;
-            p.speed = 0;
-            p.vx = 0;
-            p.vy = 0;
-            p.angle = 0;
-            localPlayerRef.current = { ...p };
-            SyncBridge.updatePlayerPosition(room.code, p);
-          }
-        }, 3100);
-        return () => clearTimeout(timer);
+    if (role === 'student' && currentPlayerId && room.players?.[currentPlayerId]) {
+      const serverPlayer = room.players[currentPlayerId];
+      if (!serverPlayer.isSeated && localPlayerRef.current?.isSeated) {
+        localPlayerRef.current.isSeated = false;
+        localPlayerRef.current.seatedId = null;
       }
     }
-  }, [room.activeDuel, room.code, room.seatConfig]);
+  }, [room.players, currentPlayerId, role]);
 
   // 키보드 이벤트 리스너 (학생 크롬북/PC 조작)
   useEffect(() => {
     if (role !== 'student') return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 주사위 대결 진행 중일 때는 조작 일시 정지
+      // 주사위 대결 진행 중(3초 롤링 동안)일 때만 조작 일시 정지
       if (
         room.activeDuel &&
+        Date.now() - room.activeDuel.createdAt < 3000 &&
         (room.activeDuel.player1.id === currentPlayerId || room.activeDuel.player2.id === currentPlayerId)
       ) {
         return;
@@ -248,6 +209,60 @@ export function GameCanvas({
       // 1. 학생인 경우 로컬 물리 연산 (60FPS Client Prediction)
       if (role === 'student' && localPlayerRef.current && room.status === 'RACING') {
         let p = CartPhysics.update(localPlayerRef.current, inputRef.current, room.themeId);
+
+        // 주사위 대결(Dice Duel) 실시간 상태 및 패자 오른쪽 통로 사출 처리
+        if (room.activeDuel) {
+          const duel = room.activeDuel;
+          const isParticipant = duel.player1.id === p.id || duel.player2.id === p.id;
+
+          if (isParticipant) {
+            const elapsed = now - duel.createdAt;
+            if (elapsed < 3000) {
+              // 3초 동안 주사위 롤링 중: 카트 정지
+              p.speed = 0;
+              p.vx = 0;
+              p.vy = 0;
+            } else {
+              // 3초 경과 후 결과 판정:
+              if (duel.loserId === p.id) {
+                const contestedSeat = room.seatConfig?.seats?.[duel.seatId];
+                const sX = contestedSeat ? contestedSeat.x : p.x;
+                const sY = contestedSeat ? contestedSeat.y : p.y;
+                const sW = contestedSeat ? contestedSeat.width : 74;
+                const rightExitX = sX + sW / 2 + 55;
+
+                // 패자가 아직 착석 상태이거나 상자 왼쪽/내부에 머물러 있다면 즉시 오른쪽 통로로 사출!
+                if (p.isSeated || p.seatedId || p.x < rightExitX - 10) {
+                  p.isSeated = false;
+                  p.seatedId = null;
+                  p.x = rightExitX; // 좌석 상자 오른쪽으로 튕겨져 나옴
+                  p.y = sY;
+                  p.angle = 90; // 오른쪽(동쪽) 방향 정렬
+                  p.speed = 0;
+                  p.vx = 0;
+                  p.vy = 0;
+
+                  // 동기화 전송
+                  SyncBridge.updatePlayerPosition(room.code, p);
+                  SyncBridge.releasePlayerFromSeat(room.code, p.id);
+                }
+              } else if (duel.winnerId === p.id) {
+                // 승자: 자리 상자 중앙에 영구 안착
+                const contestedSeat = room.seatConfig?.seats?.[duel.seatId];
+                if (contestedSeat) {
+                  p.isSeated = true;
+                  p.seatedId = duel.seatId;
+                  p.x = contestedSeat.x;
+                  p.y = contestedSeat.y;
+                  p.angle = 0;
+                  p.speed = 0;
+                  p.vx = 0;
+                  p.vy = 0;
+                }
+              }
+            }
+          }
+        }
 
         // 벽 충돌 검사
         map.walls.forEach((wall) => {
@@ -372,12 +387,13 @@ export function GameCanvas({
               // 3. 서버/동기화 브릿지에 원자적 착석 또는 동시 진입 주사위 대결 요청
               SyncBridge.claimSeat(room.code, seat.id, p).then((res) => {
                 if (res.type === 'rejected') {
-                  // 이미 완전히 닫힌 좌석: 밖으로 즉시 사출 및 조작 복구
+                  // 이미 완전히 닫힌 좌석: 상자 오른쪽 바깥으로 즉시 사출 및 조작 복구
+                  const sW = seat.width || 74;
                   p.isSeated = false;
                   p.seatedId = null;
-                  p.x = seat.x;
-                  p.y = seat.y + seat.height / 2 + 55;
-                  p.angle = 180;
+                  p.x = seat.x + sW / 2 + 55;
+                  p.y = seat.y;
+                  p.angle = 90;
                   p.speed = 0;
                   p.vx = 0;
                   p.vy = 0;
