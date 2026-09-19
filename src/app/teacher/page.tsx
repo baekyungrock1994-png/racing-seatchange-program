@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { SeatBuilder } from '@/components/SeatBuilder';
 import { GameCanvas } from '@/components/GameCanvas';
 import { TeacherHUD } from '@/components/TeacherHUD';
+import { TeacherNotificationFeed } from '@/components/TeacherNotificationFeed';
 import { ResultBoard } from '@/components/ResultBoard';
 import { THEME_LIST, THEMES } from '@/constants/themes';
 import { CHARACTERS } from '@/constants/characters';
@@ -242,6 +243,9 @@ export default function TeacherPage() {
         onFinishRace={handleFinishRace}
         onViewResults={() => SyncBridge.updateRoomStatus(room.code, 'FINISHED')}
       />
+
+      {/* 실시간 레이싱 알림 피드 (우측 줄글 알림: 주사위 대결, 착석 완료 등) */}
+      <TeacherNotificationFeed room={room} />
 
       {/* 대기실 (LOBBY) 상태일 때 중앙 대형 방 코드 및 참가 학생 명단 오버레이 */}
       {room.status === 'LOBBY' && (

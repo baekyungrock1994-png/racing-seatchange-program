@@ -114,7 +114,7 @@ export function GameCanvas({
       duelProcessedRef.current = activeDuel.id;
 
       if (activeDuel.loserId === p.id) {
-        // 패자: 2.3초 주사위 롤링 후 상자 밖 아래 통로로 안전하게 사출 및 조작 복구
+        // 패자: 3.0초 주사위 롤링 직후 상자 밖 아래 통로로 안전하게 사출 및 조작 복구
         const timer = setTimeout(() => {
           const contestedSeat = room.seatConfig?.seats?.[activeDuel.seatId];
           const exitY = (contestedSeat ? contestedSeat.y + contestedSeat.height / 2 : p.y) + 60;
@@ -129,7 +129,7 @@ export function GameCanvas({
           localPlayerRef.current = { ...p };
           SyncBridge.updatePlayerPosition(room.code, p);
           SyncBridge.releasePlayerFromSeat(room.code, p.id);
-        }, 2400);
+        }, 3100);
         return () => clearTimeout(timer);
       } else if (activeDuel.winnerId === p.id) {
         // 승자: 상자 중앙에 영구 안착
@@ -147,7 +147,7 @@ export function GameCanvas({
             localPlayerRef.current = { ...p };
             SyncBridge.updatePlayerPosition(room.code, p);
           }
-        }, 2400);
+        }, 3100);
         return () => clearTimeout(timer);
       }
     }
@@ -492,16 +492,20 @@ export function GameCanvas({
   return (
     <div className="relative w-full h-full overflow-hidden bg-slate-950 select-none">
       <canvas ref={canvasRef} className="block w-full h-full" />
-      {room.activeDuel && (
-        <DiceDuelModal
-          duel={room.activeDuel}
-          currentUserId={currentPlayerId}
-          onComplete={() => {
-            if (role === 'teacher' || room.activeDuel?.winnerId === currentPlayerId) {
-              SyncBridge.clearActiveDuel(room.code);
-            }
-          }}
-        />
+      {/* 주사위 대결 모달: 대결에 참여 중인 학생 2명에게만 표시 (교사나 다른 학생에게는 미표시) */}
+      {room.activeDuel &&
+        role === 'student' &&
+        currentPlayerId &&
+        (room.activeDuel.player1.id === currentPlayerId || room.activeDuel.player2.id === currentPlayerId) && (
+          <DiceDuelModal
+            duel={room.activeDuel}
+            currentUserId={currentPlayerId}
+            onComplete={() => {
+              if (room.activeDuel?.winnerId === currentPlayerId) {
+                SyncBridge.clearActiveDuel(room.code);
+              }
+            }}
+          />
       )}
     </div>
   );

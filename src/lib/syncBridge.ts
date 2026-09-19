@@ -299,6 +299,12 @@ export class SyncBridge {
           isSeated: false,
           seatedId: null
         });
+
+        // 5초 후 activeDuel 자동 정리 (대결 완료 후 안전장치)
+        setTimeout(() => {
+          this.clearActiveDuel(roomCode);
+        }, 5000);
+
         return { type: 'duel', duel };
       }
 
@@ -404,6 +410,12 @@ export class SyncBridge {
             }
 
             this.saveLocalRoom(room);
+
+            // 5초 후 activeDuel 자동 정리
+            setTimeout(() => {
+              this.clearActiveDuel(roomCode);
+            }, 5000);
+
             return { type: 'duel', duel };
           }
         }

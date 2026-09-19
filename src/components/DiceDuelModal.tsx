@@ -72,7 +72,7 @@ export function DiceDuelModal({ duel, currentUserId, onComplete }: DiceDuelModal
       setDisplayRoll2(Math.floor(Math.random() * 6) + 1);
     }, 90);
 
-    // 3. 2.2초 후 주사위 결과 확정 및 공개
+    // 3. 정확히 3초 동안 주사위 롤링 후 결과 즉시 확정 및 공개
     const revealTimer = setTimeout(() => {
       clearInterval(rollInterval);
       setIsRolling(false);
@@ -88,12 +88,12 @@ export function DiceDuelModal({ duel, currentUserId, onComplete }: DiceDuelModal
           origin: { y: 0.6 }
         });
       }
-    }, 2200);
+    }, 3000);
 
-    // 4. 3.8초 후 모달 자동 완료 및 닫힘
+    // 4. 결과 확인 후 1.2초 뒤 모달 자동 완료 및 닫힘
     const closeTimer = setTimeout(() => {
       onComplete?.();
-    }, 3800);
+    }, 4200);
 
     return () => {
       clearInterval(rollInterval);
