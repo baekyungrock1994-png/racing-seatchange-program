@@ -6,6 +6,7 @@ import { GameRoom } from '@/types/game';
 import { Trophy, Printer, ArrowLeft, Users, Sparkles } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { CHARACTERS } from '@/constants/characters';
+import { SoundSystem } from '@/engine/SoundSystem';
 
 interface ResultBoardProps {
   room: GameRoom;
@@ -14,12 +15,19 @@ interface ResultBoardProps {
 
 export function ResultBoard({ room, onBackToLobby }: ResultBoardProps) {
   useEffect(() => {
+    // 결과 화면 축하 배경음악 재생
+    SoundSystem.playBGM('finish');
+
     // 팡파르 축하 콘페티
     confetti({
       particleCount: 120,
       spread: 80,
       origin: { y: 0.6 }
     });
+
+    return () => {
+      SoundSystem.stopBGM();
+    };
   }, []);
 
   const seats = room.seatConfig?.seats || {};
