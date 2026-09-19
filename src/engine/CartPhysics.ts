@@ -21,12 +21,12 @@ export interface PhysicsConfig {
 }
 
 export const DEFAULT_PHYSICS_CONFIG: PhysicsConfig = {
-  maxSpeed: 7.5,
-  reverseMaxSpeed: -3.0,
-  acceleration: 0.22,
-  braking: 0.35,
-  friction: 0.965,
-  turnSpeed: 3.8,     // 도/frame
+  maxSpeed: 3.8,      // 너무 빠르지 않고 안정적인 순항 속도
+  reverseMaxSpeed: -2.2,
+  acceleration: 1.2,
+  braking: 0.8,
+  friction: 0.88,
+  turnSpeed: 4.0,     // 쾌적하고 정확한 코너링 조향
   cartWidth: 32,
   cartHeight: 52
 };
@@ -52,15 +52,8 @@ export class CartPhysics {
     }
 
     const now = Date.now();
-    let currentMaxSpeed = config.maxSpeed;
-    let friction = config.friction;
-
-    // 테마별 노면 특성 반영
-    if (themeId === 'ice') {
-      friction = 0.985; // 빙판에서는 매우 미끄러움
-    } else if (themeId === 'colosseum') {
-      friction = 0.95;  // 모래사장은 저항이 좀 더 큼
-    }
+    // 부스터 아이템 사용 시 일시적 가속, 평상시에는 일정한 정속(3.8) 주행
+    let cruiseSpeed = config.maxSpeed;
 
     // 활성 아이템 / 디버프 효과 확인
     let steerLeft = input.left;
@@ -72,37 +65,30 @@ export class CartPhysics {
         steerLeft = input.right;
         steerRight = input.left;
       } else if (player.activeEffect === 'booster') {
-        currentMaxSpeed *= 1.45;
+        cruiseSpeed = 5.5; // 부스터 순간 순항 속도
       }
     } else if (player.activeEffect && player.effectEndTime <= now) {
       player.activeEffect = null;
     }
 
-    // 1. 가속 및 감속 처리
+    // 1. 일정한 정속 주행 (가속이 끝없이 붙지 않고 키를 누르면 바로 동일한 편안한 속도로 주행)
     let speed = player.speed;
 
     if (input.forward) {
-      speed += config.acceleration;
-      if (speed > currentMaxSpeed) speed = currentMaxSpeed;
+      speed = cruiseSpeed; // 가속도 누적 없이 일정한 편안한 속도 유지
     } else if (input.backward) {
-      if (speed > 0) {
-        speed -= config.braking;
-        if (speed < 0) speed = 0;
-      } else {
-        speed -= config.acceleration * 0.7;
-        if (speed < config.reverseMaxSpeed) speed = config.reverseMaxSpeed;
-      }
+      speed = config.reverseMaxSpeed;
     } else {
-      // 액셀을 떼면 자연 감속
-      speed *= friction;
-      if (Math.abs(speed) < 0.05) speed = 0;
+      // 액셀을 떼면 부드럽고 빠르게 정지
+      speed *= config.friction;
+      if (Math.abs(speed) < 0.1) speed = 0;
     }
 
-    // 2. 조향 (차가 움직이고 있을 때만 회전 가능)
+    // 2. 조향 (차가 움직이고 있을 때 회전)
     let angle = player.angle;
-    if (Math.abs(speed) > 0.1) {
+    if (Math.abs(speed) > 0.05) {
       const direction = speed > 0 ? 1 : -1; // 후진 시 조향 반전
-      const turnAmount = config.turnSpeed * (Math.min(Math.abs(speed), 4.5) / 4.5);
+      const turnAmount = config.turnSpeed;
 
       if (steerLeft) {
         angle -= turnAmount * direction;
@@ -116,13 +102,12 @@ export class CartPhysics {
     angle = (angle % 360 + 360) % 360;
 
     // 3. 각도에 따른 속도 벡터(vx, vy) 계산 (0도가 위쪽/북쪽 기준)
-    // 수학적으로 0도가 북쪽이면: x = sin(rad), y = -cos(rad)
     const rad = (angle * Math.PI) / 180;
     const targetVx = Math.sin(rad) * speed;
     const targetVy = -Math.cos(rad) * speed;
 
-    // 드리프트 느낌을 위해 이전 vx, vy와 부드럽게 보간 (노면 마찰에 따름)
-    const driftFactor = themeId === 'ice' ? 0.08 : 0.22;
+    // 빙판에서는 약간의 슬라이딩, 일반 서킷에서는 즉각 반응
+    const driftFactor = themeId === 'ice' ? 0.15 : 0.45;
     const vx = player.vx * (1 - driftFactor) + targetVx * driftFactor;
     const vy = player.vy * (1 - driftFactor) + targetVy * driftFactor;
 
@@ -143,17 +128,17 @@ export class CartPhysics {
   }
 
   /**
-   * 직사각형 장애물 또는 벽과의 충돌을 검사하고 반사 처리합니다.
+   * 직사각형 장애물 또는 벽과의 충돌을 검사하고 완벽하게 반사 밀어내기 처리합니다.
+   * 터널링(벽 뚫기 및 갇힘) 현상을 원천 방지합니다.
    */
   static handleWallCollision(
     player: Player,
     wall: { x: number; y: number; width: number; height: number },
     cartRadius: number = 18
   ): Player {
-    // 쉴드가 활성화되어 있다면 충돌 반사 완화
     const isShielded = player.activeEffect === 'shield' && player.effectEndTime > Date.now();
 
-    // 원형 카트 vs 사각형 충돌 검사
+    // 벽 사각형 상에서 플레이어 중심과 가장 가까운 지점 계산
     const closestX = Math.max(wall.x, Math.min(player.x, wall.x + wall.width));
     const closestY = Math.max(wall.y, Math.min(player.y, wall.y + wall.height));
 
@@ -162,28 +147,43 @@ export class CartPhysics {
     const distSquared = distX * distX + distY * distY;
 
     if (distSquared < cartRadius * cartRadius) {
-      const distance = Math.sqrt(distSquared) || 0.01;
-      const overlap = cartRadius - distance;
+      let normalX = 0;
+      let normalY = 0;
+      let overlap = 0;
 
-      // 밖으로 밀어내기
-      const normalX = distX / distance;
-      const normalY = distY / distance;
+      if (distX === 0 && distY === 0) {
+        // [터널링 복구] 카트 중심이 이미 벽 내부에 진입한 경우: 가장 가까운 바깥 모서리로 강제 탈출
+        const dLeft = player.x - wall.x;
+        const dRight = (wall.x + wall.width) - player.x;
+        const dTop = player.y - wall.y;
+        const dBottom = (wall.y + wall.height) - player.y;
+        const minD = Math.min(dLeft, dRight, dTop, dBottom);
 
-      let newX = player.x + normalX * overlap;
-      let newY = player.y + normalY * overlap;
+        if (minD === dLeft) { normalX = -1; overlap = dLeft + cartRadius + 2; }
+        else if (minD === dRight) { normalX = 1; overlap = dRight + cartRadius + 2; }
+        else if (minD === dTop) { normalY = -1; overlap = dTop + cartRadius + 2; }
+        else { normalY = 1; overlap = dBottom + cartRadius + 2; }
+      } else {
+        const distance = Math.sqrt(distSquared) || 0.01;
+        overlap = cartRadius - distance + 1;
+        normalX = distX / distance;
+        normalY = distY / distance;
+      }
 
-      // 충돌 반사 및 속도 감소
-      const bounciness = isShielded ? 0.1 : 0.45;
-      const speedDrop = isShielded ? 0.8 : 0.4;
+      // 안전하게 벽 바깥으로 카트 좌표 이동
+      const newX = player.x + normalX * overlap;
+      const newY = player.y + normalY * overlap;
 
+      // 충돌 반사
+      const bounciness = 0.2;
       return {
         ...player,
         x: newX,
         y: newY,
-        speed: player.speed * speedDrop,
+        speed: Math.max(0, player.speed * 0.4),
         vx: normalX * Math.abs(player.speed) * bounciness,
         vy: normalY * Math.abs(player.speed) * bounciness,
-        activeEffect: isShielded ? null : player.activeEffect // 쉴드 소모
+        activeEffect: isShielded ? null : player.activeEffect
       };
     }
 
@@ -198,19 +198,20 @@ export class CartPhysics {
     player: Player,
     seat: Seat
   ): boolean {
-    if (!seat.active || seat.occupiedBy !== null) return false;
+    // 점유된 좌석은 Boolean()으로 확실하게 제외
+    if (!seat.active || Boolean(seat.occupiedBy)) return false;
 
     const halfW = seat.width / 2;
     const halfH = seat.height / 2;
     const entranceY = seat.y + halfH; // 상자의 열려있는 하단 입구 선
 
-    // 1. 좌석 입구 가로 폭 내에 있는지 (약간의 여유 마진 10px 허용)
-    const isWithinX = Math.abs(player.x - seat.x) <= halfW + 10;
+    // 1. 좌석 입구 가로 폭 내에 있는지
+    const isWithinX = Math.abs(player.x - seat.x) <= halfW + 12;
 
     // 2. 카트의 앞범퍼나 바퀴가 하단 열린 입구 선을 밟았거나 살짝 넘어왔는지 검사
     const hasSteppedOnEntranceLine =
       player.y >= seat.y - 15 &&
-      player.y <= entranceY + 26;
+      player.y <= entranceY + 28;
 
     return isWithinX && hasSteppedOnEntranceLine;
   }

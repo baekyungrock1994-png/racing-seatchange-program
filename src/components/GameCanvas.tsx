@@ -228,7 +228,7 @@ export function GameCanvas({
         // 하단 개방 상자 좌석 입구 선 밟기 검사
         if (!p.isSeated && room.seatConfig?.seats) {
           for (const seat of Object.values(room.seatConfig.seats)) {
-            if (CartPhysics.checkSeatEntry(p, seat)) {
+            if (!Boolean(seat.occupiedBy) && CartPhysics.checkSeatEntry(p, seat)) {
               // 1. 입구 선을 밟는 즉시 상자 안쪽 중앙으로 자동 안착 및 정지
               p.isSeated = true;
               p.seatedId = seat.id;
@@ -256,6 +256,10 @@ export function GameCanvas({
             }
           }
         }
+
+        // 월드 이탈 방지 경계 클램핑
+        p.x = Math.max(30, Math.min(map.worldWidth - 30, p.x));
+        p.y = Math.max(30, Math.min(map.worldHeight - 30, p.y));
 
         localPlayerRef.current = p;
 
@@ -481,8 +485,10 @@ function drawClassroomArea(
     const h = seat.height;
     const wallThick = 5;
 
+    const isOccupied = Boolean(seat.occupiedBy);
+
     ctx.save();
-    if (seat.occupiedBy !== null) {
+    if (isOccupied) {
       // 1) 점유된 좌석 (자동차가 안착되고 상자가 4면 모두 닫힘)
       ctx.fillStyle = 'rgba(16, 185, 129, 0.25)';
       ctx.fillRect(left, top, w, h);
@@ -500,10 +506,12 @@ function drawClassroomArea(
       ctx.fillStyle = '#10B981';
       ctx.fillRect(left + 2, top + 2, w - 4, 18);
 
+      const sNum = seat.studentNumber ? `${seat.studentNumber}번 ` : '';
+      const sName = seat.studentName || '착석완료';
       ctx.fillStyle = '#FFFFFF';
       ctx.font = 'bold 11px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(`${seat.studentNumber}번 ${seat.studentName}`, seat.x, top + 15);
+      ctx.fillText(`${sNum}${sName}`, seat.x, top + 15);
 
       // 착석 완료 도장 마크
       ctx.fillStyle = '#34D399';

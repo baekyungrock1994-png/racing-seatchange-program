@@ -201,7 +201,7 @@ export class SyncBridge {
       const seatRef = ref(db, `rooms/${roomCode}/seatConfig/seats/${seatId}`);
       const result = await runTransaction(seatRef, (currentSeat) => {
         if (!currentSeat) return currentSeat;
-        if (currentSeat.occupiedBy !== null) {
+        if (Boolean(currentSeat.occupiedBy)) {
           // 이미 선점됨 -> 중단
           return;
         }
@@ -233,7 +233,7 @@ export class SyncBridge {
       const room = this.getLocalRoom(roomCode);
       if (room && room.seatConfig?.seats?.[seatId]) {
         const seat = room.seatConfig.seats[seatId];
-        if (seat.occupiedBy === null) {
+        if (!Boolean(seat.occupiedBy)) {
           seat.occupiedBy = player.id;
           seat.studentName = player.name;
           seat.studentNumber = player.number;

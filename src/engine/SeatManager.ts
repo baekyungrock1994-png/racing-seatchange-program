@@ -68,7 +68,7 @@ export class SeatManager {
     seat: Seat,
     player: Player
   ): { success: boolean; updatedSeat?: Seat } {
-    if (!seat.active || seat.occupiedBy !== null) {
+    if (!seat.active || Boolean(seat.occupiedBy)) {
       return { success: false };
     }
 
@@ -77,13 +77,12 @@ export class SeatManager {
     const entranceY = seat.y + halfH; // 하단 개방 입구 선의 y좌표
 
     // 1. 좌우가 열린 입구 폭 안에 위치하는지 (약간의 자석 유도 마진 포함)
-    const isWithinX = Math.abs(player.x - seat.x) <= halfW + 8;
+    const isWithinX = Math.abs(player.x - seat.x) <= halfW + 10;
 
     // 2. 카트의 앞부분이나 중심이 하단 입구 선을 밟았거나 살짝 넘어왔는지 감지
-    // 카트 높이(52px)의 앞범퍼가 입구 선을 밟는 순간(y = entranceY + 25 ~ seat.y) 즉시 감지
     const hasSteppedOnLine = 
-      player.y >= seat.y - 10 && 
-      player.y <= entranceY + 25;
+      player.y >= seat.y - 12 && 
+      player.y <= entranceY + 28;
 
     if (isWithinX && hasSteppedOnLine) {
       const updatedSeat: Seat = {
@@ -109,9 +108,9 @@ export class SeatManager {
     const updatedSeats = { ...seatConfig.seats };
     const updatedPlayers = { ...players };
 
-    // 1. 남은 빈 활성 좌석 ID 목록 추출
+    // 1. 남은 빈 활성 좌석 ID 목록 추출 (Boolean으로 미점유 좌석 정확히 판별)
     const emptySeatIds = Object.keys(updatedSeats).filter(
-      id => updatedSeats[id].active && updatedSeats[id].occupiedBy === null
+      id => updatedSeats[id].active && !Boolean(updatedSeats[id].occupiedBy)
     );
 
     // 2. 아직 착석하지 못한 학생 ID 목록 추출

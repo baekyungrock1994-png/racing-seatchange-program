@@ -7,7 +7,7 @@ export class CircuitMaps {
     const theme = THEMES[themeId] || THEMES.classic;
     // 카트 3대(32px * 3 = 96px)가 여유롭게 주행 및 추월할 수 있는 200px 광폭 도로
     const CELL_SIZE = 200;
-    const WALL_THICK = 20;
+    const WALL_THICK = 32; // 견고하고 두꺼운 방호벽
 
     const worldWidth = 3200;
     const worldHeight = 2400;
@@ -33,35 +33,35 @@ export class CircuitMaps {
       height: 40
     };
 
-    // 3. 벽(가드레일) 자동 생성 알고리즘:
-    // 도로 타일들의 바깥 경계선에만 벽을 세우고, 도로 내부 유효 도로 폭(200px)에는 
-    // 벽이 1픽셀도 침범하지 않도록 하여 100% 무장애 연속 주행 보증!
-    const cellSet = new Set(trackCells.map(c => `${c.col},${c.row}`));
-
-    // 교실 영역에 속하는 셀 집합 (교실 내부는 통로이므로 트랙과 닿는 곳은 벽 없음)
-    const clsStartCol = Math.floor(classroomArea.x / CELL_SIZE);
-    const clsEndCol = Math.floor((classroomArea.x + classroomArea.width) / CELL_SIZE);
-    const clsStartRow = Math.floor(classroomArea.y / CELL_SIZE);
-    const clsEndRow = Math.floor((classroomArea.y + classroomArea.height) / CELL_SIZE);
-
-    const classroomCellSet = new Set<string>();
-    for (let c = clsStartCol; c <= clsEndCol; c++) {
-      for (let r = clsStartRow; r <= clsEndRow; r++) {
-        classroomCellSet.add(`${c},${r}`);
-      }
-    }
-
+    // 3. 빈틈없는 가드레일 자동 생성 알고리즘:
+    // 진행 경로상 직전 타일(idx - 1), 직후 타일(idx + 1), 그리고 교실 게이트만을 개방하고,
+    // 그 외의 모든 면(외곽, 비연속 인접 타일, 샛길 등)에 두꺼운 가드레일 방호벽을 배치하여
+    // "중간에 밖으로 새어나가거나 숏컷으로 빠지는 현상"을 원천 차단합니다!
     const walls: Obstacle[] = [];
     let wallId = 1;
 
-    // 트랙 셀들의 외곽 경계 벽 생성 (셀 바깥쪽에만 배치)
-    trackCells.forEach(({ col, row }) => {
+    const isConnected = (idx: number, targetCol: number, targetRow: number) => {
+      // 1) 이전 타일과 연결
+      if (idx > 0 && trackCells[idx - 1].col === targetCol && trackCells[idx - 1].row === targetRow) {
+        return true;
+      }
+      // 2) 다음 타일과 연결
+      if (idx < trackCells.length - 1 && trackCells[idx + 1].col === targetCol && trackCells[idx + 1].row === targetRow) {
+        return true;
+      }
+      // 3) 교실 정문 게이트(마지막 타일의 북쪽이 교실 게이트인 경우)
+      if (idx === trackCells.length - 1 && targetCol === 11 && targetRow === 6) {
+        return true;
+      }
+      return false;
+    };
+
+    trackCells.forEach(({ col, row }, idx) => {
       const x0 = col * CELL_SIZE;
       const y0 = row * CELL_SIZE;
 
-      // 위쪽 이웃 검사
-      const upKey = `${col},${row - 1}`;
-      if (!cellSet.has(upKey) && !classroomCellSet.has(upKey)) {
+      // 위쪽(North) 가드레일 검사
+      if (!isConnected(idx, col, row - 1)) {
         walls.push({
           id: `w_${wallId++}`,
           type: 'wall',
@@ -73,9 +73,8 @@ export class CircuitMaps {
         });
       }
 
-      // 아래쪽 이웃 검사
-      const downKey = `${col},${row + 1}`;
-      if (!cellSet.has(downKey) && !classroomCellSet.has(downKey)) {
+      // 아래쪽(South) 가드레일 검사
+      if (!isConnected(idx, col, row + 1)) {
         walls.push({
           id: `w_${wallId++}`,
           type: 'wall',
@@ -87,9 +86,8 @@ export class CircuitMaps {
         });
       }
 
-      // 왼쪽 이웃 검사
-      const leftKey = `${col - 1},${row}`;
-      if (!cellSet.has(leftKey) && !classroomCellSet.has(leftKey)) {
+      // 왼쪽(West) 가드레일 검사
+      if (!isConnected(idx, col - 1, row)) {
         walls.push({
           id: `w_${wallId++}`,
           type: 'wall',
@@ -101,9 +99,8 @@ export class CircuitMaps {
         });
       }
 
-      // 오른쪽 이웃 검사
-      const rightKey = `${col + 1},${row}`;
-      if (!cellSet.has(rightKey) && !classroomCellSet.has(rightKey)) {
+      // 오른쪽(East) 가드레일 검사
+      if (!isConnected(idx, col + 1, row)) {
         walls.push({
           id: `w_${wallId++}`,
           type: 'wall',
@@ -131,7 +128,7 @@ export class CircuitMaps {
     // 교실 우측 벽
     walls.push({ id: `cls_w_right`, type: 'wall', x: clsX + clsW, y: clsY, width: WALL_THICK, height: clsH + WALL_THICK, color: '#64748B' });
 
-    // 교실 하단 벽 (게이트 게이트 좌우측만 막고 입구는 개방)
+    // 교실 하단 벽 (게이트 좌우측만 막고 입구는 개방)
     if (gateX > clsX) {
       walls.push({ id: `cls_w_bot_l`, type: 'wall', x: clsX - WALL_THICK, y: clsY + clsH, width: (gateX - clsX) + WALL_THICK, height: WALL_THICK, color: '#64748B' });
     }
@@ -139,7 +136,13 @@ export class CircuitMaps {
       walls.push({ id: `cls_w_bot_r`, type: 'wall', x: gateX + gateW, y: clsY + clsH, width: (clsX + clsW) - (gateX + gateW) + WALL_THICK, height: WALL_THICK, color: '#64748B' });
     }
 
-    // 4. 테마별 인터랙티브 장애물 (주행을 완전 방해하지 않고 지나갈 수 있는 패드/오일)
+    // 4. 월드 4면 외곽 절대 방호벽 (캔버스 밖으로 이탈 방지)
+    walls.push({ id: `world_w_top`, type: 'wall', x: 0, y: 0, width: worldWidth, height: WALL_THICK, color: '#0F172A' });
+    walls.push({ id: `world_w_bot`, type: 'wall', x: 0, y: worldHeight - WALL_THICK, width: worldWidth, height: WALL_THICK, color: '#0F172A' });
+    walls.push({ id: `world_w_left`, type: 'wall', x: 0, y: 0, width: WALL_THICK, height: worldHeight, color: '#0F172A' });
+    walls.push({ id: `world_w_right`, type: 'wall', x: worldWidth - WALL_THICK, y: 0, width: WALL_THICK, height: worldHeight, color: '#0F172A' });
+
+    // 5. 테마별 인터랙티브 장애물 (주행을 완전 방해하지 않고 지나갈 수 있는 패드/오일)
     const obstacles: Obstacle[] = [];
     trackCells.forEach((c, idx) => {
       // 5칸마다 1개씩 흥미 요소 배치
@@ -160,7 +163,7 @@ export class CircuitMaps {
       }
     });
 
-    // 5. 아이템 상자 (? 박스) 배치 (4칸마다 트랙 중앙 배치)
+    // 6. 아이템 상자 (? 박스) 배치 (4칸마다 트랙 중앙 배치)
     const itemBoxes: ItemBox[] = [];
     trackCells.forEach((c, idx) => {
       if (idx > 2 && idx < trackCells.length - 2 && idx % 4 === 1) {
@@ -203,7 +206,7 @@ export class CircuitMaps {
 
   /**
    * 6종 테마별 고유 서킷 레이아웃 [col, row]
-   * 모든 맵은 연속된 셀 간격(맨해튼 거리 1)으로만 연결되어 단절 및 막힘이 전혀 없습니다.
+   * 모든 맵은 연속된 셀 간격(맨해튼 거리 1)으로만 연결되어 단절 및 숏컷이 전혀 없습니다.
    */
   private static getThemeLayout(themeId: CircuitThemeId, cellSize: number) {
     let cells: Array<{ col: number; row: number }> = [];
@@ -304,24 +307,25 @@ export class CircuitMaps {
       ];
     } else if (themeId === 'colosseum') {
       // ⚔️ 5. 고대 콜로세움: 투기장 원형 외곽 트랙과 2중 전차 헤어핀 시케인
+      // 출발선(col 1)과 회귀로(col 3 이후) 사이에 col 2의 200px 완전 버퍼 및 방호벽을 확보하여 숏컷 불가!
       cells = [
-        // 1. 투기장 서측 아치 트랙
+        // 1. 투기장 서측 아치 트랙 (남->북)
         { col: 1, row: 10 }, { col: 1, row: 9 }, { col: 1, row: 8 }, { col: 1, row: 7 }, { col: 1, row: 6 },
-        { col: 1, row: 5 }, { col: 1, row: 4 }, { col: 1, row: 3 }, { col: 1, row: 2 },
-        // 2. 북측 황제 관람석 아치
-        { col: 2, row: 2 }, { col: 3, row: 2 }, { col: 4, row: 2 }, { col: 5, row: 2 }, { col: 6, row: 2 }, { col: 7, row: 2 },
+        { col: 1, row: 5 }, { col: 1, row: 4 }, { col: 1, row: 3 }, { col: 1, row: 2 }, { col: 1, row: 1 },
+        // 2. 북측 황제 관람석 아치 (서->동)
+        { col: 2, row: 1 }, { col: 3, row: 1 }, { col: 4, row: 1 }, { col: 5, row: 1 }, { col: 6, row: 1 }, { col: 7, row: 1 },
         // 3. 전차 1번 헤어핀 시케인
-        { col: 7, row: 3 }, { col: 7, row: 4 },
+        { col: 7, row: 2 }, { col: 7, row: 3 }, { col: 7, row: 4 },
         { col: 6, row: 4 }, { col: 5, row: 4 }, { col: 4, row: 4 }, { col: 3, row: 4 },
         // 4. 전차 2번 헤어핀 시케인
         { col: 3, row: 5 }, { col: 3, row: 6 },
         { col: 4, row: 6 }, { col: 5, row: 6 }, { col: 6, row: 6 }, { col: 7, row: 6 }, { col: 8, row: 6 },
         // 5. 남측 투기장 외곽 곡선
         { col: 8, row: 7 }, { col: 8, row: 8 },
-        { col: 7, row: 8 }, { col: 6, row: 8 }, { col: 5, row: 8 }, { col: 4, row: 8 }, { col: 3, row: 8 }, { col: 2, row: 8 },
-        // 6. 승리의 전차 질주로 (남단)
-        { col: 2, row: 9 }, { col: 2, row: 10 },
-        { col: 3, row: 10 }, { col: 4, row: 10 }, { col: 5, row: 10 }, { col: 6, row: 10 }, { col: 7, row: 10 }, { col: 8, row: 10 }, { col: 9, row: 10 }, { col: 10, row: 10 }, { col: 11, row: 10 },
+        { col: 7, row: 8 }, { col: 6, row: 8 }, { col: 5, row: 8 }, { col: 4, row: 8 }, { col: 3, row: 8 },
+        // 6. 승리의 전차 질주로 (col 3으로 내려가서 col 1 출발선과 완벽히 격리)
+        { col: 3, row: 9 }, { col: 3, row: 10 },
+        { col: 4, row: 10 }, { col: 5, row: 10 }, { col: 6, row: 10 }, { col: 7, row: 10 }, { col: 8, row: 10 }, { col: 9, row: 10 }, { col: 10, row: 10 }, { col: 11, row: 10 },
         // 7. 콜로세움 정문 진입 (피니시)
         { col: 11, row: 9 }, { col: 11, row: 8 }, { col: 11, row: 7 }
       ];
