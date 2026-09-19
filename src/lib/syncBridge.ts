@@ -1,5 +1,5 @@
 // src/lib/syncBridge.ts
-import { GameRoom, Player, SeatConfig, RoomStatus } from '@/types/game';
+import { GameRoom, Player, SeatConfig, RoomStatus, SeatDuel } from '@/types/game';
 import { db, isFirebaseConfigured } from './firebase';
 import { 
   ref, 
@@ -9,6 +9,11 @@ import {
   runTransaction, 
   Unsubscribe 
 } from 'firebase/database';
+
+export type ClaimSeatResult = 
+  | { type: 'success'; seatId: string }
+  | { type: 'duel'; duel: SeatDuel }
+  | { type: 'rejected'; seatId: string };
 
 /**
  * Firebase Realtime Database 또는 브라우저 탭 간 BroadcastChannel을 통해 
@@ -190,30 +195,114 @@ export class SyncBridge {
   }
 
   /**
-   * 원자적 좌석 선점 (Atomic Transaction)
+   * 원자적 좌석 선점 (Atomic Transaction) & 동시 진입 시 주사위 대결(Dice Duel) 발동
    */
   static async claimSeat(
     roomCode: string,
     seatId: string,
     player: Player
-  ): Promise<boolean> {
+  ): Promise<ClaimSeatResult> {
     if (isFirebaseConfigured && db) {
+      let duelCreated: SeatDuel | null = null;
       const seatRef = ref(db, `rooms/${roomCode}/seatConfig/seats/${seatId}`);
       const result = await runTransaction(seatRef, (currentSeat) => {
         if (!currentSeat) return currentSeat;
-        if (Boolean(currentSeat.occupiedBy)) {
-          // 이미 선점됨 -> 중단
-          return;
+        const now = Date.now();
+
+        // 1. 빈 좌석 정상 선점
+        if (!Boolean(currentSeat.occupiedBy)) {
+          currentSeat.occupiedBy = player.id;
+          currentSeat.studentName = player.name;
+          currentSeat.studentNumber = player.number;
+          currentSeat.characterId = player.characterId;
+          currentSeat.claimTime = now;
+          currentSeat.underDuel = false;
+          return currentSeat;
         }
-        currentSeat.occupiedBy = player.id;
-        currentSeat.studentName = player.name;
-        currentSeat.studentNumber = player.number;
-        currentSeat.characterId = player.characterId;
-        return currentSeat;
+
+        // 본인이 이미 정상 점유 중
+        if (currentSeat.occupiedBy === player.id) {
+          return currentSeat;
+        }
+
+        // 2. 다른 플레이어가 점유 중이나, 3초 이내에 동시 진입한 경우 (주사위 대결 발동!)
+        const elapsed = now - (currentSeat.claimTime || 0);
+        if (elapsed < 3000 && !currentSeat.underDuel) {
+          currentSeat.underDuel = true;
+
+          // 공정한 1~6 주사위 추첨 (무승부 방지)
+          let roll1 = Math.floor(Math.random() * 6) + 1;
+          let roll2 = Math.floor(Math.random() * 6) + 1;
+          while (roll1 === roll2) {
+            roll2 = Math.floor(Math.random() * 6) + 1;
+          }
+
+          const p1 = {
+            id: currentSeat.occupiedBy || player.id,
+            name: currentSeat.studentName || '선수 1',
+            number: currentSeat.studentNumber || 1,
+            characterId: currentSeat.characterId || 'speed_racer',
+            roll: roll1
+          };
+          const p2 = {
+            id: player.id,
+            name: player.name,
+            number: player.number,
+            characterId: player.characterId,
+            roll: roll2
+          };
+
+          const winner = roll1 > roll2 ? p1 : p2;
+          const loser = roll1 > roll2 ? p2 : p1;
+
+          const seatRow = typeof currentSeat.row === 'number' ? currentSeat.row + 1 : 1;
+          const seatCol = typeof currentSeat.col === 'number' ? currentSeat.col + 1 : 1;
+          const seatName = `${seatRow}분단 ${seatCol}열 자리`;
+
+          duelCreated = {
+            id: `duel_${seatId}_${now}`,
+            seatId,
+            seatName,
+            player1: p1,
+            player2: p2,
+            winnerId: winner.id,
+            loserId: loser.id,
+            status: 'rolling',
+            createdAt: now
+          };
+
+          // 승자 정보로 좌석 확정
+          currentSeat.occupiedBy = winner.id;
+          currentSeat.studentName = winner.name;
+          currentSeat.studentNumber = winner.number;
+          currentSeat.characterId = winner.characterId;
+          currentSeat.claimTime = now;
+          return currentSeat;
+        }
+
+        // 3. 이미 3초 이상 경과하여 완전히 선점된 좌석 -> 거절
+        return;
       });
 
+      if (duelCreated) {
+        const duel = duelCreated as SeatDuel;
+        // 방 전체에 활성 대결 전송 (학생 및 교사 화면 중계)
+        await set(ref(db, `rooms/${roomCode}/activeDuel`), duel);
+        // 승자 플레이어 정보 갱신
+        await update(ref(db, `rooms/${roomCode}/players/${duel.winnerId}`), {
+          isSeated: true,
+          seatedId: seatId,
+          seatTime: Date.now()
+        });
+        // 패자 플레이어 정보 미착석 상태로 확실히 초기화
+        await update(ref(db, `rooms/${roomCode}/players/${duel.loserId}`), {
+          isSeated: false,
+          seatedId: null
+        });
+        return { type: 'duel', duel };
+      }
+
       if (result.committed) {
-        // 플레이어 상태도 완주 안착(속도 0, 칠판 정렬, 좌석 좌표)으로 즉시 갱신
         await update(ref(db, `rooms/${roomCode}/players/${player.id}`), {
           isSeated: true,
           seatedId: seatId,
@@ -225,26 +314,29 @@ export class SyncBridge {
           vx: 0,
           vy: 0
         });
-        return true;
+        return { type: 'success', seatId };
       }
-      return false;
+
+      return { type: 'rejected', seatId };
     } else {
       // 로컬 원자적 판정
       const room = this.getLocalRoom(roomCode);
       if (room && room.seatConfig?.seats?.[seatId]) {
         const seat = room.seatConfig.seats[seatId];
+        const now = Date.now();
+
         if (!Boolean(seat.occupiedBy)) {
           seat.occupiedBy = player.id;
           seat.studentName = player.name;
           seat.studentNumber = player.number;
           seat.characterId = player.characterId;
+          seat.claimTime = now;
+          seat.underDuel = false;
 
           if (room.players?.[player.id]) {
             room.players[player.id].isSeated = true;
             room.players[player.id].seatedId = seatId;
-            room.players[player.id].seatTime = Date.now();
-            room.players[player.id].x = player.x;
-            room.players[player.id].y = player.y;
+            room.players[player.id].seatTime = now;
             room.players[player.id].angle = 0;
             room.players[player.id].speed = 0;
             room.players[player.id].vx = 0;
@@ -252,10 +344,105 @@ export class SyncBridge {
           }
 
           this.saveLocalRoom(room);
-          return true;
+          return { type: 'success', seatId };
+        } else if (seat.occupiedBy !== player.id) {
+          const elapsed = now - (seat.claimTime || 0);
+          if (elapsed < 3000 && !seat.underDuel) {
+            seat.underDuel = true;
+            let roll1 = Math.floor(Math.random() * 6) + 1;
+            let roll2 = Math.floor(Math.random() * 6) + 1;
+            while (roll1 === roll2) roll2 = Math.floor(Math.random() * 6) + 1;
+
+            const p1 = {
+              id: seat.occupiedBy || player.id,
+              name: seat.studentName || '선수 1',
+              number: seat.studentNumber || 1,
+              characterId: seat.characterId || 'speed_racer',
+              roll: roll1
+            };
+            const p2 = {
+              id: player.id,
+              name: player.name,
+              number: player.number,
+              characterId: player.characterId,
+              roll: roll2
+            };
+
+            const winner = roll1 > roll2 ? p1 : p2;
+            const loser = roll1 > roll2 ? p2 : p1;
+
+            const seatRow = typeof seat.row === 'number' ? seat.row + 1 : 1;
+            const seatCol = typeof seat.col === 'number' ? seat.col + 1 : 1;
+            const seatName = `${seatRow}분단 ${seatCol}열 자리`;
+
+            const duel: SeatDuel = {
+              id: `duel_${seatId}_${now}`,
+              seatId,
+              seatName,
+              player1: p1,
+              player2: p2,
+              winnerId: winner.id,
+              loserId: loser.id,
+              status: 'rolling',
+              createdAt: now
+            };
+
+            seat.occupiedBy = winner.id;
+            seat.studentName = winner.name;
+            seat.studentNumber = winner.number;
+            seat.characterId = winner.characterId;
+            seat.claimTime = now;
+
+            room.activeDuel = duel;
+            if (room.players?.[winner.id]) {
+              room.players[winner.id].isSeated = true;
+              room.players[winner.id].seatedId = seatId;
+            }
+            if (room.players?.[loser.id]) {
+              room.players[loser.id].isSeated = false;
+              room.players[loser.id].seatedId = null;
+            }
+
+            this.saveLocalRoom(room);
+            return { type: 'duel', duel };
+          }
         }
       }
-      return false;
+      return { type: 'rejected', seatId };
+    }
+  }
+
+  /**
+   * 패배자 또는 퇴장 플레이어 좌석 해제
+   */
+  static async releasePlayerFromSeat(roomCode: string, playerId: string): Promise<void> {
+    if (isFirebaseConfigured && db) {
+      await update(ref(db, `rooms/${roomCode}/players/${playerId}`), {
+        isSeated: false,
+        seatedId: null
+      });
+    } else {
+      const room = this.getLocalRoom(roomCode);
+      if (room?.players?.[playerId]) {
+        room.players[playerId].isSeated = false;
+        room.players[playerId].seatedId = null;
+        this.saveLocalRoom(room);
+      }
+    }
+  }
+
+  /**
+   * 주사위 대결 완료 후 activeDuel 정리
+   */
+  static async clearActiveDuel(roomCode: string): Promise<void> {
+    if (isFirebaseConfigured && db) {
+      await set(ref(db, `rooms/${roomCode}/activeDuel`), null);
+    } else {
+      const room = this.getLocalRoom(roomCode);
+      if (room) {
+        room.activeDuel = null;
+        this.saveLocalRoom(room);
+      }
     }
   }
 

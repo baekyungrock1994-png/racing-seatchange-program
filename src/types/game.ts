@@ -41,6 +41,28 @@ export interface Seat {
   width: number;           // 좌석 박스 폭
   height: number;          // 좌석 박스 높이
   openSide: 'bottom' | 'top' | 'left' | 'right'; // 열린 면 (기본 bottom)
+  claimTime?: number;      // 좌석 진입 선점 시간 (ms)
+  underDuel?: boolean;     // 주사위 대결 진행 중 여부
+}
+
+export interface SeatDuelParticipant {
+  id: string;
+  name: string;
+  number: number;
+  characterId: CharacterId;
+  roll?: number;           // 주사위 눈금 (1~6)
+}
+
+export interface SeatDuel {
+  id: string;              // e.g. "duel_seat_0_1_1726800000"
+  seatId: string;
+  seatName: string;        // e.g. "1분단 2열 (자리 3번)"
+  player1: SeatDuelParticipant;
+  player2: SeatDuelParticipant;
+  winnerId?: string;       // 승자 ID
+  loserId?: string;        // 패자 ID
+  status: 'rolling' | 'resolved';
+  createdAt: number;
 }
 
 export interface SeatConfig {
@@ -148,6 +170,7 @@ export interface GameRoom {
   
   seatConfig: SeatConfig;
   players: Record<string, Player>;
+  activeDuel?: SeatDuel | null;
   
   // 동기화용 미니멀 패킷
   // key: playerId, value: {x, y, a, s}

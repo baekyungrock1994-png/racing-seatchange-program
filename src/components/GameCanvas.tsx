@@ -9,6 +9,7 @@ import { CameraSystem, CameraState } from '@/engine/CameraSystem';
 import { SoundSystem } from '@/engine/SoundSystem';
 import { SyncBridge } from '@/lib/syncBridge';
 import { CHARACTERS } from '@/constants/characters';
+import { DiceDuelModal } from './DiceDuelModal';
 
 interface GameCanvasProps {
   room: GameRoom;
@@ -101,11 +102,70 @@ export function GameCanvas({
     };
   }, [room.status]);
 
+  const duelProcessedRef = useRef<string | null>(null);
+
+  // 주사위 대결(Dice Duel) 결과에 따른 승자 안착 및 패자 통로 자동 사출 처리
+  useEffect(() => {
+    const activeDuel = room.activeDuel;
+    if (!activeDuel || !localPlayerRef.current) return;
+
+    const p = localPlayerRef.current;
+    if (activeDuel.id !== duelProcessedRef.current) {
+      duelProcessedRef.current = activeDuel.id;
+
+      if (activeDuel.loserId === p.id) {
+        // 패자: 2.3초 주사위 롤링 후 상자 밖 아래 통로로 안전하게 사출 및 조작 복구
+        const timer = setTimeout(() => {
+          const contestedSeat = room.seatConfig?.seats?.[activeDuel.seatId];
+          const exitY = (contestedSeat ? contestedSeat.y + contestedSeat.height / 2 : p.y) + 60;
+          p.isSeated = false;
+          p.seatedId = null;
+          p.x = contestedSeat ? contestedSeat.x : p.x;
+          p.y = exitY;
+          p.angle = 180;
+          p.speed = 0;
+          p.vx = 0;
+          p.vy = 0;
+          localPlayerRef.current = { ...p };
+          SyncBridge.updatePlayerPosition(room.code, p);
+          SyncBridge.releasePlayerFromSeat(room.code, p.id);
+        }, 2400);
+        return () => clearTimeout(timer);
+      } else if (activeDuel.winnerId === p.id) {
+        // 승자: 상자 중앙에 영구 안착
+        const timer = setTimeout(() => {
+          const contestedSeat = room.seatConfig?.seats?.[activeDuel.seatId];
+          if (contestedSeat) {
+            p.isSeated = true;
+            p.seatedId = activeDuel.seatId;
+            p.x = contestedSeat.x;
+            p.y = contestedSeat.y;
+            p.speed = 0;
+            p.vx = 0;
+            p.vy = 0;
+            p.angle = 0;
+            localPlayerRef.current = { ...p };
+            SyncBridge.updatePlayerPosition(room.code, p);
+          }
+        }, 2400);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [room.activeDuel, room.code, room.seatConfig]);
+
   // 키보드 이벤트 리스너 (학생 크롬북/PC 조작)
   useEffect(() => {
     if (role !== 'student') return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // 주사위 대결 진행 중일 때는 조작 일시 정지
+      if (
+        room.activeDuel &&
+        (room.activeDuel.player1.id === currentPlayerId || room.activeDuel.player2.id === currentPlayerId)
+      ) {
+        return;
+      }
+
       if (['ArrowUp', 'KeyW'].includes(e.code)) inputRef.current.forward = true;
       if (['ArrowDown', 'KeyS'].includes(e.code)) inputRef.current.backward = true;
       if (['ArrowLeft', 'KeyA'].includes(e.code)) inputRef.current.left = true;
@@ -125,7 +185,7 @@ export function GameCanvas({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [role]);
+  }, [role, room.activeDuel, currentPlayerId]);
 
   // 교사 마우스 휠 줌인/줌아웃 & 패닝 핸들러
   useEffect(() => {
@@ -291,7 +351,7 @@ export function GameCanvas({
         if (!p.isSeated && room.seatConfig?.seats) {
           for (const seat of Object.values(room.seatConfig.seats)) {
             if (!Boolean(seat.occupiedBy) && CartPhysics.checkSeatEntry(p, seat)) {
-              // 1. 입구 선을 밟는 즉시 상자 안쪽 중앙으로 자동 안착 및 정지
+              // 1. 입구 선을 밟는 즉시 상자 안쪽 중앙으로 임시 안착 및 정지
               p.isSeated = true;
               p.seatedId = seat.id;
               p.speed = 0;
@@ -301,7 +361,7 @@ export function GameCanvas({
               p.y = seat.y;
               p.angle = 0; // 칠판(북쪽)을 향해 똑바로 정렬
 
-              // 2. 상자가 즉시 닫히도록 로컬 좌석 데이터 갱신
+              // 2. 상자가 즉시 닫히도록 로컬 좌석 데이터 임시 갱신
               if (room.seatConfig.seats[seat.id]) {
                 room.seatConfig.seats[seat.id].occupiedBy = p.id;
                 room.seatConfig.seats[seat.id].studentName = p.name;
@@ -309,11 +369,30 @@ export function GameCanvas({
                 room.seatConfig.seats[seat.id].characterId = p.characterId;
               }
 
-              // 3. 착석 효과음 및 서버/동기화 브릿지 전송
-              SoundSystem.playSeatSuccess();
-              SyncBridge.claimSeat(room.code, seat.id, p);
-              SyncBridge.updatePlayerPosition(room.code, p);
-              onSeatClaimed?.(seat.id);
+              // 3. 서버/동기화 브릿지에 원자적 착석 또는 동시 진입 주사위 대결 요청
+              SyncBridge.claimSeat(room.code, seat.id, p).then((res) => {
+                if (res.type === 'rejected') {
+                  // 이미 완전히 닫힌 좌석: 밖으로 즉시 사출 및 조작 복구
+                  p.isSeated = false;
+                  p.seatedId = null;
+                  p.x = seat.x;
+                  p.y = seat.y + seat.height / 2 + 55;
+                  p.angle = 180;
+                  p.speed = 0;
+                  p.vx = 0;
+                  p.vy = 0;
+                  localPlayerRef.current = { ...p };
+                  SyncBridge.updatePlayerPosition(room.code, p);
+                  SyncBridge.releasePlayerFromSeat(room.code, p.id);
+                } else if (res.type === 'success') {
+                  // 정상 착석 완료
+                  SoundSystem.playSeatSuccess();
+                  SyncBridge.updatePlayerPosition(room.code, p);
+                  onSeatClaimed?.(seat.id);
+                } else if (res.type === 'duel') {
+                  // 주사위 대결 발생 -> room.activeDuel 리스너에서 자동 모달 오픈 및 판정
+                }
+              });
               break;
             }
           }
@@ -413,6 +492,17 @@ export function GameCanvas({
   return (
     <div className="relative w-full h-full overflow-hidden bg-slate-950 select-none">
       <canvas ref={canvasRef} className="block w-full h-full" />
+      {room.activeDuel && (
+        <DiceDuelModal
+          duel={room.activeDuel}
+          currentUserId={currentPlayerId}
+          onComplete={() => {
+            if (role === 'teacher' || room.activeDuel?.winnerId === currentPlayerId) {
+              SyncBridge.clearActiveDuel(room.code);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

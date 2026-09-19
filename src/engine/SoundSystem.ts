@@ -249,4 +249,70 @@ export class SoundSystem {
       });
     });
   }
+
+  /**
+   * 주사위 대결 굴리는 소리 (달그락거리는 주사위 회전음)
+   * MP3 파일: public/sounds/dice_roll.mp3
+   */
+  static playDiceRoll() {
+    if (this.isMuted) return;
+
+    this.tryPlayAudioFile('dice_roll', () => {
+      const ctx = this.getContext();
+      if (!ctx) return;
+
+      // 신시사이저: 15개의 짧은 주사위 딸깍임 버스트
+      for (let i = 0; i < 12; i++) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        const startTime = ctx.currentTime + i * 0.08 + Math.random() * 0.03;
+        const freq = 400 + Math.random() * 600;
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, startTime);
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.5, startTime + 0.04);
+
+        gain.gain.setValueAtTime(0.2 * this.sfxVolume, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.04);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(startTime);
+        osc.stop(startTime + 0.05);
+      }
+    });
+  }
+
+  /**
+   * 주사위 대결 승리 효과음
+   */
+  static playDiceWin() {
+    if (this.isMuted) return;
+
+    this.tryPlayAudioFile('dice_win', () => {
+      const ctx = this.getContext();
+      if (!ctx) return;
+
+      const freqs = [440, 554.37, 659.25, 880]; // A4, C#5, E5, A5
+      freqs.forEach((f, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const t = ctx.currentTime + i * 0.08;
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(f, t);
+
+        gain.gain.setValueAtTime(0.3 * this.sfxVolume, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(t);
+        osc.stop(t + 0.3);
+      });
+    });
+  }
 }
