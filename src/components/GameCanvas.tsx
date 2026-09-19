@@ -71,9 +71,21 @@ export function GameCanvas({
   // 로컬 플레이어 초기화
   useEffect(() => {
     if (role === 'student' && currentPlayerId && room.players?.[currentPlayerId]) {
-      localPlayerRef.current = { ...room.players[currentPlayerId] };
+      const p = { ...room.players[currentPlayerId] };
+      const sl = mapDataRef.current.startLine;
+      // 레이스 시작 전(LOBBY 또는 COUNTDOWN)에는 카트를 해당 테마 출발선 안쪽에 정확하게 정렬
+      if (room.status === 'LOBBY' || room.status === 'COUNTDOWN') {
+        const dist = Math.hypot(p.x - (sl.x + sl.width / 2), p.y - (sl.y + sl.height / 2));
+        if (dist > 180) {
+          p.x = sl.x + 20 + Math.random() * (sl.width - 40);
+          p.y = sl.y + 5 + Math.random() * Math.max(sl.height - 10, 10);
+          p.angle = sl.angle || 0;
+          SyncBridge.updatePlayerPosition(room.code, p);
+        }
+      }
+      localPlayerRef.current = p;
     }
-  }, [currentPlayerId]);
+  }, [currentPlayerId, room.themeId, room.status]);
 
   // 키보드 이벤트 리스너 (학생 크롬북/PC 조작)
   useEffect(() => {
@@ -321,45 +333,32 @@ export function GameCanvas({
 // --- 캔버스 드로잉 서브 루틴들 ---
 
 function drawTrackGuides(ctx: CanvasRenderingContext2D, map: CircuitMapData) {
+  const cs = map.cellSize || 175;
+
   ctx.save();
-  // 1. 완벽한 3차선 폭(170px) 아스팔트 트랙 도로망 렌더링
+  // 1. 테마 고유의 트랙 셀 도로 바닥 렌더링 (균일한 3차선 폭)
   ctx.fillStyle = map.bgColors.track;
+  (map.trackCells || []).forEach((c) => {
+    ctx.fillRect(c.col * cs, c.row * cs, cs, cs);
+  });
 
-  // 구간 1: 출발선 및 서쪽 메인 직선 주로 (x: 200 ~ 370, y: 200 ~ 1350)
-  ctx.fillRect(200, 200, 170, 1150);
+  // 2. 트랙 중앙 점선 (진행 방향 차선 가이드)
+  if (map.trackCells && map.trackCells.length > 1) {
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 4;
+    ctx.setLineDash([16, 16]);
 
-  // 구간 2: 1번 코너 및 상단 수평 고속 주행로 (x: 200 ~ 1000, y: 200 ~ 370)
-  ctx.fillRect(200, 200, 800, 170);
+    ctx.beginPath();
+    const first = map.trackCells[0];
+    ctx.moveTo(first.col * cs + cs / 2, first.row * cs + cs / 2);
 
-  // 구간 3: 2번 코너 및 1차 다운힐 주로 (x: 830 ~ 1000, y: 200 ~ 1070)
-  ctx.fillRect(830, 200, 170, 870);
-
-  // 구간 4: 3번 코너 및 중앙 가속 주로 (x: 830 ~ 1600, y: 900 ~ 1070)
-  ctx.fillRect(830, 900, 770, 170);
-
-  // 구간 5: 4번 코너 및 교실 정문 진입로 (x: 1430 ~ 1600, y: 500 ~ 1070)
-  ctx.fillRect(1430, 500, 170, 570);
-
-  // 2. 도로 중앙 점선 (차선 라인 디테일)
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-  ctx.lineWidth = 4;
-  ctx.setLineDash([16, 16]);
-
-  // 구간 1 중앙선
-  ctx.beginPath();
-  ctx.moveTo(285, 1250);
-  ctx.lineTo(285, 285);
-  // 구간 2 중앙선
-  ctx.lineTo(915, 285);
-  // 구간 3 중앙선
-  ctx.lineTo(915, 985);
-  // 구간 4 중앙선
-  ctx.lineTo(1515, 985);
-  // 구간 5 중앙선
-  ctx.lineTo(1515, 530);
-  ctx.stroke();
-  ctx.setLineDash([]); // 점선 해제
-
+    for (let i = 1; i < map.trackCells.length; i++) {
+      const c = map.trackCells[i];
+      ctx.lineTo(c.col * cs + cs / 2, c.row * cs + cs / 2);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]); // 점선 복구
+  }
   ctx.restore();
 
   // 3. 밀폐형 가드레일 (외벽 및 분리벽) 렌더링
@@ -377,12 +376,12 @@ function drawTrackGuides(ctx: CanvasRenderingContext2D, map: CircuitMapData) {
     ctx.restore();
   });
 
-  // 4. 출발선 체크무늬 깃발 패턴 (x: 200, y: 1250, 폭 170)
+  // 4. 출발선 체크무늬 깃발 패턴
   ctx.save();
   const sl = map.startLine;
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(sl.x, sl.y, sl.width, sl.height);
-  const tileSize = 17; // 170px에 딱 떨어지게 10칸
+  const tileSize = 17;
   ctx.fillStyle = '#0F172A';
   for (let x = sl.x; x < sl.x + sl.width; x += tileSize) {
     for (let y = sl.y; y < sl.y + sl.height; y += tileSize) {
@@ -399,7 +398,7 @@ function drawTrackGuides(ctx: CanvasRenderingContext2D, map: CircuitMapData) {
   ctx.fillText('🏁 S T A R T 🏁', sl.x + sl.width / 2, sl.y - 12);
   ctx.restore();
 
-  // 5. 결승선 체크무늬 및 교실 정문 게이트 (x: 1430, y: 500, 폭 170)
+  // 5. 결승선 체크무늬 및 교실 정문 게이트
   ctx.save();
   const fl = map.finishLine;
   ctx.fillStyle = '#FFFFFF';
@@ -417,8 +416,8 @@ function drawTrackGuides(ctx: CanvasRenderingContext2D, map: CircuitMapData) {
   ctx.fillStyle = '#38BDF8';
   ctx.font = 'black 16px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('▲ FINISH / 교실 입구 ▲', fl.x + fl.width / 2, fl.y + 70);
-  ctx.fillText('▲ 원하는 자리에 주차하세요! ▲', fl.x + fl.width / 2, fl.y + 95);
+  ctx.fillText('▲ FINISH / 교실 입구 ▲', fl.x + fl.width / 2, fl.y + 55);
+  ctx.fillText('▲ 원하는 자리에 주차하세요! ▲', fl.x + fl.width / 2, fl.y + 75);
   ctx.restore();
 }
 

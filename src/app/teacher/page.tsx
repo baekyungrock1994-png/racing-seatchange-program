@@ -38,6 +38,18 @@ export default function TeacherPage() {
   const handleCreateRoom = async () => {
     if (!seatConfig) return;
 
+    // 선택된 테마의 정확한 교실 영역(classroomArea)으로 좌석 좌표 최종 생성
+    const map = CircuitMaps.getMap(selectedTheme);
+    const rows = seatConfig.rows;
+    const cols = seatConfig.cols;
+    const activeGrid = Array.from({ length: rows }, (_, r) =>
+      Array.from({ length: cols }, (_, c) => {
+        const id = `seat_${r}_${c}`;
+        return seatConfig.seats[id]?.active ?? true;
+      })
+    );
+    const finalSeatConfig = SeatManager.generateSeats(rows, cols, activeGrid, map.classroomArea);
+
     // 6자리 무작위 방 코드 생성
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     const newRoom: GameRoom = {
@@ -47,7 +59,7 @@ export default function TeacherPage() {
       themeId: selectedTheme,
       countdown: 3,
       createdAt: Date.now(),
-      seatConfig,
+      seatConfig: finalSeatConfig,
       players: {}
     };
 

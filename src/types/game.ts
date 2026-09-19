@@ -129,6 +129,8 @@ export interface CircuitMapData {
     height: number;
   };
   trackPolygons: Array<Array<{ x: number; y: number }>>;
+  trackCells: Array<{ col: number; row: number }>;
+  cellSize: number;
   walls: Obstacle[];
   obstacles: Obstacle[];
   itemBoxes: ItemBox[];

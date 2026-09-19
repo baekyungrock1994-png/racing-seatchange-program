@@ -2,157 +2,177 @@
 import { CircuitMapData, CircuitThemeId, Obstacle, ItemBox } from '@/types/game';
 import { THEMES } from '@/constants/themes';
 
-/**
- * [정밀 서킷 기하학 설계]
- * 1. 카트 3대가 나란히 주행할 수 있는 균일한 트랙 폭: 정확히 170px
- * 2. 출발선 -> 1번 코너 -> 2번 코너 -> S자 슬라럼 -> 결승선(FINISH) -> 교실로 단 하나의 막힘없는 경로
- * 3. 도로 바깥으로 절대 이탈할 수 없는 완벽한 좌우 밀폐 가드레일
- */
 export class CircuitMaps {
   static getMap(themeId: CircuitThemeId): CircuitMapData {
     const theme = THEMES[themeId] || THEMES.classic;
-    const worldWidth = 2400;
-    const worldHeight = 1600;
-
-    const TRACK_WIDTH = 170; // 카트 3대 폭 (34px * 3 + 간격)
+    const CELL_SIZE = 175; // 카트 3대가 가로로 나란히 주행할 수 있는 최적 폭
     const WALL_THICK = 24;
 
-    // 1. 출발선 (남서쪽 트랙 직선로)
+    const worldWidth = 2450;
+    const worldHeight = 1750;
+
+    // 테마별 고유 트랙 셀 경로 [col, row] 및 교실 영역 정의
+    const { trackCells, classroomArea, startHeading } = this.getThemeLayout(themeId, CELL_SIZE);
+
+    // 1. 출발선: 트랙의 첫 번째 셀 내부
+    const firstCell = trackCells[0];
     const startLine = {
-      x: 200,
-      y: 1250,
-      width: TRACK_WIDTH,
-      height: 40,
-      angle: 0 // 북쪽을 바라보고 출발
+      x: firstCell.col * CELL_SIZE + 10,
+      y: firstCell.row * CELL_SIZE + CELL_SIZE / 2,
+      width: CELL_SIZE - 20,
+      height: 35,
+      angle: startHeading
     };
 
-    // 2. 결승선 (트랙 끝 지점, 북쪽 교실 진입구)
+    // 2. 결승선: 트랙의 마지막 셀과 교실 사이의 경계
+    const lastCell = trackCells[trackCells.length - 1];
     const finishLine = {
-      x: 1430,
-      y: 500,
-      width: TRACK_WIDTH,
-      height: 40
+      x: lastCell.col * CELL_SIZE + 10,
+      y: lastCell.row * CELL_SIZE + 10,
+      width: CELL_SIZE - 20,
+      height: 35
     };
 
-    // 3. 교실 좌석 구역 (결승선 바로 위쪽)
-    const classroomArea = {
-      x: 1200,
-      y: 50,
-      width: 1000,
-      height: 440
-    };
+    // 3. 벽(가드레일) 자동 생성 알고리즘:
+    // 도로 타일들의 바깥 경계선에만 벽을 세우고, 도로 내부 연결부는 100% 뚫어두어 
+    // "중간에 벽으로 가로막히는 현상"을 수학적으로 완벽 차단!
+    const cellSet = new Set(trackCells.map(c => `${c.col},${c.row}`));
 
-    // 4. 단 하나의 단절 없는 트랙을 감싸는 완벽한 가드레일 벽들
-    const walls: Obstacle[] = [
-      // --- 트랙 구간 1: 출발선 및 서쪽 직선 주로 (x: 200 ~ 370, y: 370 ~ 1350) ---
-      // 뒤쪽 막힘 벽 (출발선 뒤로 후진 불가)
-      { id: 'w_start_back', type: 'wall', x: 200 - WALL_THICK, y: 1350, width: TRACK_WIDTH + WALL_THICK * 2, height: WALL_THICK, color: theme.wallColor },
-      // 좌측 외벽 (출발선 ~ 1번 코너)
-      { id: 'w_s1_left', type: 'wall', x: 200 - WALL_THICK, y: 200 - WALL_THICK, width: WALL_THICK, height: 1150 + WALL_THICK, color: theme.wallColor },
-      // 우측 내측벽 (출발선 ~ 1번 코너 안쪽)
-      { id: 'w_s1_right', type: 'wall', x: 200 + TRACK_WIDTH, y: 370, width: WALL_THICK, height: 980, color: theme.wallColor },
+    // 교실 영역에 속하는 셀 집합 (교실도 벽으로 둘러싸이되 트랙 입구는 뚫림)
+    const clsStartCol = Math.floor(classroomArea.x / CELL_SIZE);
+    const clsEndCol = Math.floor((classroomArea.x + classroomArea.width) / CELL_SIZE);
+    const clsStartRow = Math.floor(classroomArea.y / CELL_SIZE);
+    const clsEndRow = Math.floor((classroomArea.y + classroomArea.height) / CELL_SIZE);
 
-      // --- 트랙 구간 2: 1번 코너 및 상단 수평 주로 (x: 200 ~ 1000, y: 200 ~ 370) ---
-      // 상단 외벽
-      { id: 'w_s2_top', type: 'wall', x: 200 - WALL_THICK, y: 200 - WALL_THICK, width: 800 + TRACK_WIDTH + WALL_THICK * 2, height: WALL_THICK, color: theme.wallColor },
-      // 하단 내측벽
-      { id: 'w_s2_bottom', type: 'wall', x: 200 + TRACK_WIDTH, y: 200 + TRACK_WIDTH, width: 460, height: WALL_THICK, color: theme.wallColor },
-
-      // --- 트랙 구간 3: 2번 코너 및 1차 하강 주로 (x: 830 ~ 1000, y: 370 ~ 900) ---
-      // 우측 외벽
-      { id: 'w_s3_right', type: 'wall', x: 1000, y: 200 - WALL_THICK, width: WALL_THICK, height: 700 + TRACK_WIDTH + WALL_THICK * 2, color: theme.wallColor },
-      // 좌측 내측벽
-      { id: 'w_s3_left', type: 'wall', x: 830 - WALL_THICK, y: 370, width: WALL_THICK, height: 530, color: theme.wallColor },
-
-      // --- 트랙 구간 4: 3번 코너 및 중앙 수평 주로 (x: 830 ~ 1600, y: 900 ~ 1070) ---
-      // 하단 외벽
-      { id: 'w_s4_bottom', type: 'wall', x: 830 - WALL_THICK, y: 1070, width: 770 + WALL_THICK * 2, height: WALL_THICK, color: theme.wallColor },
-      // 상단 내측벽
-      { id: 'w_s4_top', type: 'wall', x: 1000, y: 900 - WALL_THICK, width: 430, height: WALL_THICK, color: theme.wallColor },
-
-      // --- 트랙 구간 5: 4번 코너 및 교실 진입 상승 주로 (x: 1430 ~ 1600, y: 500 ~ 900) ---
-      // 우측 외벽
-      { id: 'w_s5_right', type: 'wall', x: 1600, y: 500, width: WALL_THICK, height: 570 + WALL_THICK, color: theme.wallColor },
-      // 좌측 내측벽
-      { id: 'w_s5_left', type: 'wall', x: 1430 - WALL_THICK, y: 500, width: WALL_THICK, height: 400 - WALL_THICK, color: theme.wallColor },
-
-      // --- 교실 영역 외벽 (남쪽 입구 x: 1430 ~ 1600 만 뚫려 있음) ---
-      // 교실 상단 벽
-      { id: 'w_cls_top', type: 'wall', x: 1200 - WALL_THICK, y: 50 - WALL_THICK, width: 1000 + WALL_THICK * 2, height: WALL_THICK, color: '#64748B' },
-      // 교실 좌측 벽
-      { id: 'w_cls_left', type: 'wall', x: 1200 - WALL_THICK, y: 50 - WALL_THICK, width: WALL_THICK, height: 440 + WALL_THICK, color: '#64748B' },
-      // 교실 우측 벽
-      { id: 'w_cls_right', type: 'wall', x: 2200, y: 50 - WALL_THICK, width: WALL_THICK, height: 440 + WALL_THICK, color: '#64748B' },
-      // 교실 하단 벽 (입구 좌측: x: 1200 ~ 1430)
-      { id: 'w_cls_bot_l', type: 'wall', x: 1200 - WALL_THICK, y: 490, width: 230 + WALL_THICK, height: WALL_THICK, color: '#64748B' },
-      // 교실 하단 벽 (입구 우측: x: 1600 ~ 2200)
-      { id: 'w_cls_bot_r', type: 'wall', x: 1600, y: 490, width: 600 + WALL_THICK, height: WALL_THICK, color: '#64748B' }
-    ];
-
-    // 도로 중간 고유 테마 장애물 (카트 3대 폭 중 1대 분량만 차지하여 회피 가능)
-    const obstacles: Obstacle[] = [];
-    if (themeId === 'classic') {
-      obstacles.push(
-        { id: 'obs_1', type: 'oil', x: 270, y: 800, width: 60, height: 60, color: '#0F172A' },
-        { id: 'obs_2', type: 'rock', x: 600, y: 260, width: 50, height: 50, color: '#475569' },
-        { id: 'obs_3', type: 'oil', x: 890, y: 650, width: 60, height: 60, color: '#0F172A' },
-        { id: 'obs_4', type: 'oil', x: 1250, y: 960, width: 60, height: 60, color: '#0F172A' },
-        { id: 'obs_5', type: 'rock', x: 1490, y: 700, width: 50, height: 50, color: '#475569' }
-      );
-    } else if (themeId === 'classroom') {
-      obstacles.push(
-        { id: 'obs_1', type: 'oil', x: 260, y: 800, width: 70, height: 70, color: '#F8FAFC' }, // 우유
-        { id: 'obs_2', type: 'rock', x: 600, y: 260, width: 65, height: 40, color: '#F43F5E' }, // 지우개
-        { id: 'obs_3', type: 'oil', x: 890, y: 650, width: 70, height: 70, color: '#F8FAFC' },
-        { id: 'obs_4', type: 'rock', x: 1250, y: 960, width: 65, height: 40, color: '#3B82F6' },
-        { id: 'obs_5', type: 'oil', x: 1490, y: 700, width: 70, height: 70, color: '#F8FAFC' }
-      );
-    } else if (themeId === 'space') {
-      obstacles.push(
-        { id: 'obs_1', type: 'speed_pad', x: 260, y: 800, width: 55, height: 80, color: '#06B6D4' },
-        { id: 'obs_2', type: 'rock', x: 600, y: 260, width: 50, height: 50, color: '#4C1D95' },
-        { id: 'obs_3', type: 'speed_pad', x: 890, y: 650, width: 55, height: 80, color: '#06B6D4' },
-        { id: 'obs_4', type: 'rock', x: 1250, y: 960, width: 50, height: 50, color: '#4C1D95' },
-        { id: 'obs_5', type: 'speed_pad', x: 1490, y: 700, width: 55, height: 80, color: '#06B6D4' }
-      );
-    } else if (themeId === 'ice') {
-      obstacles.push(
-        { id: 'obs_1', type: 'ice_patch', x: 250, y: 800, width: 80, height: 80, color: '#E0F2FE' },
-        { id: 'obs_2', type: 'rock', x: 600, y: 260, width: 50, height: 50, color: '#FFFFFF' },
-        { id: 'obs_3', type: 'ice_patch', x: 880, y: 650, width: 80, height: 80, color: '#E0F2FE' },
-        { id: 'obs_4', type: 'rock', x: 1250, y: 960, width: 50, height: 50, color: '#FFFFFF' },
-        { id: 'obs_5', type: 'ice_patch', x: 1480, y: 700, width: 80, height: 80, color: '#E0F2FE' }
-      );
-    } else if (themeId === 'colosseum') {
-      obstacles.push(
-        { id: 'obs_1', type: 'oil', x: 260, y: 800, width: 65, height: 65, color: '#EA580C' },
-        { id: 'obs_2', type: 'rock', x: 600, y: 260, width: 50, height: 50, color: '#FEF08A' },
-        { id: 'obs_3', type: 'oil', x: 890, y: 650, width: 65, height: 65, color: '#EA580C' },
-        { id: 'obs_4', type: 'rock', x: 1250, y: 960, width: 50, height: 50, color: '#FEF08A' },
-        { id: 'obs_5', type: 'oil', x: 1490, y: 700, width: 65, height: 65, color: '#EA580C' }
-      );
-    } else if (themeId === 'europe') {
-      obstacles.push(
-        { id: 'obs_1', type: 'rock', x: 260, y: 800, width: 60, height: 60, color: '#38BDF8' },
-        { id: 'obs_2', type: 'wall', x: 600, y: 260, width: 50, height: 50, color: '#713F12' },
-        { id: 'obs_3', type: 'rock', x: 890, y: 650, width: 60, height: 60, color: '#38BDF8' },
-        { id: 'obs_4', type: 'wall', x: 1250, y: 960, width: 50, height: 50, color: '#713F12' },
-        { id: 'obs_5', type: 'rock', x: 1490, y: 700, width: 60, height: 60, color: '#38BDF8' }
-      );
+    const classroomCellSet = new Set<string>();
+    for (let c = clsStartCol; c <= clsEndCol; c++) {
+      for (let r = clsStartRow; r <= clsEndRow; r++) {
+        classroomCellSet.add(`${c},${r}`);
+      }
     }
 
-    // 아이템 상자 (? 박스) 배치 - 트랙 정중앙에 균일하게 배치
-    const itemBoxes: ItemBox[] = [
-      { id: 'ib_1', x: 285, y: 1050, size: 34, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_2', x: 285, y: 550, size: 34, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_3', x: 500, y: 285, size: 34, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_4', x: 750, y: 285, size: 34, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_5', x: 915, y: 500, size: 34, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_6', x: 915, y: 800, size: 34, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_7', x: 1150, y: 985, size: 34, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_8', x: 1400, y: 985, size: 34, isAvailable: true, respawnTimer: 0 },
-      { id: 'ib_9', x: 1515, y: 750, size: 34, isAvailable: true, respawnTimer: 0 }
-    ];
+    const walls: Obstacle[] = [];
+    let wallId = 1;
+
+    // 트랙 셀들의 외곽 경계 벽 생성
+    trackCells.forEach(({ col, row }) => {
+      const x0 = col * CELL_SIZE;
+      const y0 = row * CELL_SIZE;
+
+      // 위쪽 이웃 검사
+      const upKey = `${col},${row - 1}`;
+      if (!cellSet.has(upKey) && !classroomCellSet.has(upKey)) {
+        walls.push({
+          id: `w_${wallId++}`,
+          type: 'wall',
+          x: x0 - WALL_THICK,
+          y: y0 - WALL_THICK,
+          width: CELL_SIZE + WALL_THICK * 2,
+          height: WALL_THICK,
+          color: theme.wallColor
+        });
+      }
+
+      // 아래쪽 이웃 검사
+      const downKey = `${col},${row + 1}`;
+      if (!cellSet.has(downKey) && !classroomCellSet.has(downKey)) {
+        walls.push({
+          id: `w_${wallId++}`,
+          type: 'wall',
+          x: x0 - WALL_THICK,
+          y: y0 + CELL_SIZE,
+          width: CELL_SIZE + WALL_THICK * 2,
+          height: WALL_THICK,
+          color: theme.wallColor
+        });
+      }
+
+      // 왼쪽 이웃 검사
+      const leftKey = `${col - 1},${row}`;
+      if (!cellSet.has(leftKey) && !classroomCellSet.has(leftKey)) {
+        walls.push({
+          id: `w_${wallId++}`,
+          type: 'wall',
+          x: x0 - WALL_THICK,
+          y: y0 - WALL_THICK,
+          width: WALL_THICK,
+          height: CELL_SIZE + WALL_THICK * 2,
+          color: theme.wallColor
+        });
+      }
+
+      // 오른쪽 이웃 검사
+      const rightKey = `${col + 1},${row}`;
+      if (!cellSet.has(rightKey) && !classroomCellSet.has(rightKey)) {
+        walls.push({
+          id: `w_${wallId++}`,
+          type: 'wall',
+          x: x0 + CELL_SIZE,
+          y: y0 - WALL_THICK,
+          width: WALL_THICK,
+          height: CELL_SIZE + WALL_THICK * 2,
+          color: theme.wallColor
+        });
+      }
+    });
+
+    // 교실 외곽 벽 생성 (단, 트랙 마지막 셀과 닿는 입구는 열어둠!)
+    const clsX = classroomArea.x;
+    const clsY = classroomArea.y;
+    const clsW = classroomArea.width;
+    const clsH = classroomArea.height;
+
+    // 교실 상단 벽
+    walls.push({ id: `cls_w_top`, type: 'wall', x: clsX - WALL_THICK, y: clsY - WALL_THICK, width: clsW + WALL_THICK * 2, height: WALL_THICK, color: '#64748B' });
+    // 교실 좌측 벽
+    walls.push({ id: `cls_w_left`, type: 'wall', x: clsX - WALL_THICK, y: clsY - WALL_THICK, width: WALL_THICK, height: clsH + WALL_THICK * 2, color: '#64748B' });
+    // 교실 우측 벽
+    walls.push({ id: `cls_w_right`, type: 'wall', x: clsX + clsW, y: clsY - WALL_THICK, width: WALL_THICK, height: clsH + WALL_THICK * 2, color: '#64748B' });
+
+    // 교실 하단 벽 (트랙 마지막 셀이 들어오는 입구 부분은 뚫어두기)
+    const entryX = lastCell.col * CELL_SIZE;
+    if (entryX > clsX) {
+      walls.push({ id: `cls_w_bot_l`, type: 'wall', x: clsX - WALL_THICK, y: clsY + clsH, width: entryX - clsX + WALL_THICK, height: WALL_THICK, color: '#64748B' });
+    }
+    if (entryX + CELL_SIZE < clsX + clsW) {
+      walls.push({ id: `cls_w_bot_r`, type: 'wall', x: entryX + CELL_SIZE, y: clsY + clsH, width: (clsX + clsW) - (entryX + CELL_SIZE) + WALL_THICK, height: WALL_THICK, color: '#64748B' });
+    }
+
+    // 4. 테마별 고유 장애물 배치 (트랙 셀 중앙 일부만 차지하여 3차선 중 1개 차선만 막고 2차선은 통과 가능)
+    const obstacles: Obstacle[] = [];
+    trackCells.forEach((c, idx) => {
+      // 4칸마다 1개씩 장애물 배치
+      if (idx > 2 && idx < trackCells.length - 2 && idx % 4 === 1) {
+        const cx = c.col * CELL_SIZE + CELL_SIZE / 2;
+        const cy = c.row * CELL_SIZE + CELL_SIZE / 2;
+        const obsType = themeId === 'space' ? 'speed_pad' : (themeId === 'ice' ? 'ice_patch' : (idx % 2 === 0 ? 'oil' : 'rock'));
+
+        obstacles.push({
+          id: `obs_${idx}`,
+          type: obsType,
+          x: cx - 25,
+          y: cy - 25,
+          width: 50,
+          height: 50,
+          color: themeId === 'space' ? '#06B6D4' : (themeId === 'ice' ? '#E0F2FE' : (obsType === 'oil' ? '#0F172A' : '#475569'))
+        });
+      }
+    });
+
+    // 5. 아이템 상자 (? 박스) 배치 (3칸마다 균일 배치)
+    const itemBoxes: ItemBox[] = [];
+    trackCells.forEach((c, idx) => {
+      if (idx > 1 && idx < trackCells.length - 1 && idx % 3 === 2) {
+        itemBoxes.push({
+          id: `ib_${idx}`,
+          x: c.col * CELL_SIZE + CELL_SIZE / 2,
+          y: c.row * CELL_SIZE + CELL_SIZE / 2,
+          size: 34,
+          isAvailable: true,
+          respawnTimer: 0
+        });
+      }
+    });
 
     return {
       id: themeId,
@@ -172,9 +192,90 @@ export class CircuitMaps {
       finishLine,
       classroomArea,
       trackPolygons: [],
+      trackCells,
+      cellSize: CELL_SIZE,
       walls,
       obstacles,
       itemBoxes
     };
+  }
+
+  /**
+   * 6종 테마별로 완전히 다른 고유한 서킷 타일 경로 [col, row] 생성기
+   */
+  private static getThemeLayout(themeId: CircuitThemeId, cellSize: number) {
+    let cells: Array<{ col: number; row: number }> = [];
+    let classroomArea = { x: 9 * cellSize, y: 1 * cellSize, width: 4 * cellSize, height: 3 * cellSize };
+    let startHeading = 0; // 북쪽 출발
+
+    if (themeId === 'classic') {
+      // 🏁 1. 정통 레이싱장: 롱 스트레이트 -> 고속 코너 -> S자 시케인
+      classroomArea = { x: 8 * cellSize, y: 1 * cellSize, width: 5 * cellSize, height: 3 * cellSize };
+      cells = [
+        // 출발선 및 롱 직선 주로
+        { col: 1, row: 8 }, { col: 1, row: 7 }, { col: 1, row: 6 }, { col: 1, row: 5 }, { col: 1, row: 4 }, { col: 1, row: 3 }, { col: 1, row: 2 },
+        // 1번 고속 우회전
+        { col: 2, row: 2 }, { col: 3, row: 2 }, { col: 4, row: 2 }, { col: 5, row: 2 },
+        // 다운힐
+        { col: 5, row: 3 }, { col: 5, row: 4 }, { col: 5, row: 5 },
+        // S자 시케인
+        { col: 6, row: 5 }, { col: 7, row: 5 }, { col: 7, row: 6 }, { col: 8, row: 6 }, { col: 8, row: 7 }, { col: 9, row: 7 }, { col: 10, row: 7 },
+        // 결승선 피니시 상승
+        { col: 10, row: 6 }, { col: 10, row: 5 }, { col: 10, row: 4 }
+      ];
+    } else if (themeId === 'classroom') {
+      // ✏️ 2. 교실 어드벤처: 책상 사이 90도 직각 크랭크 미로
+      classroomArea = { x: 8 * cellSize, y: 1 * cellSize, width: 5 * cellSize, height: 3 * cellSize };
+      cells = [
+        { col: 1, row: 8 }, { col: 1, row: 7 }, { col: 1, row: 6 },
+        { col: 2, row: 6 }, { col: 3, row: 6 }, { col: 3, row: 7 }, { col: 3, row: 8 },
+        { col: 4, row: 8 }, { col: 5, row: 8 }, { col: 5, row: 7 }, { col: 5, row: 6 }, { col: 5, row: 5 }, { col: 5, row: 4 },
+        { col: 4, row: 4 }, { col: 3, row: 4 }, { col: 3, row: 3 }, { col: 3, row: 2 }, { col: 4, row: 2 }, { col: 5, row: 2 }, { col: 6, row: 2 }, { col: 7, row: 2 },
+        { col: 7, row: 3 }, { col: 7, row: 4 }, { col: 8, row: 4 }
+      ];
+    } else if (themeId === 'space') {
+      // 🌌 3. 우주 정거장: 외곽 대형 오비탈 루프 궤도
+      classroomArea = { x: 5 * cellSize, y: 3 * cellSize, width: 4 * cellSize, height: 3 * cellSize };
+      cells = [
+        { col: 1, row: 8 }, { col: 1, row: 7 }, { col: 1, row: 6 }, { col: 1, row: 5 }, { col: 1, row: 4 }, { col: 1, row: 3 }, { col: 1, row: 2 },
+        { col: 2, row: 2 }, { col: 3, row: 2 }, { col: 4, row: 2 }, { col: 5, row: 2 }, { col: 6, row: 2 }, { col: 7, row: 2 }, { col: 8, row: 2 }, { col: 9, row: 2 }, { col: 10, row: 2 }, { col: 11, row: 2 }, { col: 12, row: 2 },
+        { col: 12, row: 3 }, { col: 12, row: 4 }, { col: 12, row: 5 }, { col: 12, row: 6 }, { col: 12, row: 7 }, { col: 12, row: 8 },
+        { col: 11, row: 8 }, { col: 10, row: 8 }, { col: 9, row: 8 }, { col: 8, row: 8 }, { col: 7, row: 8 },
+        { col: 7, row: 7 }, { col: 7, row: 6 }
+      ];
+    } else if (themeId === 'europe') {
+      // 🏛️ 4. 유럽 도시: 시가지 골목 & 분수대 광장 로터리
+      classroomArea = { x: 7 * cellSize, y: 1 * cellSize, width: 5 * cellSize, height: 3 * cellSize };
+      cells = [
+        { col: 1, row: 8 }, { col: 1, row: 7 }, { col: 1, row: 6 }, { col: 1, row: 5 }, { col: 1, row: 4 },
+        { col: 2, row: 4 }, { col: 3, row: 4 },
+        // 분수대 로터리 순환
+        { col: 4, row: 4 }, { col: 5, row: 4 }, { col: 6, row: 4 }, { col: 6, row: 5 }, { col: 6, row: 6 }, { col: 5, row: 6 }, { col: 4, row: 6 }, { col: 3, row: 6 }, { col: 3, row: 5 },
+        // 로터리 탈출 후 피니시
+        { col: 4, row: 7 }, { col: 5, row: 7 }, { col: 6, row: 7 }, { col: 7, row: 7 }, { col: 8, row: 7 },
+        { col: 8, row: 6 }, { col: 8, row: 5 }, { col: 8, row: 4 }
+      ];
+    } else if (themeId === 'colosseum') {
+      // ⚔️ 5. 고대 콜로세움: 웅장한 원형 투기장 아치 코스
+      classroomArea = { x: 4 * cellSize, y: 3 * cellSize, width: 4 * cellSize, height: 3 * cellSize };
+      cells = [
+        { col: 2, row: 8 }, { col: 1, row: 7 }, { col: 1, row: 6 }, { col: 1, row: 5 }, { col: 1, row: 4 }, { col: 1, row: 3 }, { col: 2, row: 2 },
+        { col: 3, row: 2 }, { col: 4, row: 2 }, { col: 5, row: 2 }, { col: 6, row: 2 }, { col: 7, row: 2 }, { col: 8, row: 2 }, { col: 9, row: 2 }, { col: 10, row: 2 }, { col: 11, row: 3 },
+        { col: 11, row: 4 }, { col: 11, row: 5 }, { col: 11, row: 6 }, { col: 11, row: 7 }, { col: 10, row: 8 },
+        { col: 9, row: 8 }, { col: 8, row: 8 }, { col: 7, row: 8 }, { col: 6, row: 8 }, { col: 5, row: 8 }, { col: 5, row: 7 }, { col: 5, row: 6 }
+      ];
+    } else if (themeId === 'ice') {
+      // ❄️ 6. 얼음왕국: 4단 연속 헤어핀 드리프트 코스
+      classroomArea = { x: 7 * cellSize, y: 1 * cellSize, width: 5 * cellSize, height: 3 * cellSize };
+      cells = [
+        { col: 1, row: 8 }, { col: 1, row: 7 }, { col: 1, row: 6 },
+        { col: 2, row: 6 }, { col: 3, row: 6 }, { col: 4, row: 6 }, { col: 5, row: 6 },
+        { col: 5, row: 5 }, { col: 4, row: 5 }, { col: 3, row: 5 }, { col: 2, row: 5 },
+        { col: 2, row: 4 }, { col: 3, row: 4 }, { col: 4, row: 4 }, { col: 5, row: 4 }, { col: 6, row: 4 }, { col: 7, row: 4 },
+        { col: 7, row: 3 }, { col: 8, row: 3 }, { col: 8, row: 4 }
+      ];
+    }
+
+    return { trackCells: cells, classroomArea, startHeading };
   }
 }
