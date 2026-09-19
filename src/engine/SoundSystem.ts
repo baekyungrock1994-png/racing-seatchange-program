@@ -64,6 +64,7 @@ export class SoundSystem {
 
     const candidateUrls = [
       `/sounds/${trackName}.mp3`,
+      `/sounds/${trackName}.mp3.mp3`,
       `/sounds/${trackName}_bgm.mp3`,
       `/sounds/bgm.mp3`
     ];
@@ -111,13 +112,24 @@ export class SoundSystem {
     if (this.isMuted) return;
     if (typeof window === 'undefined') return;
 
-    const audio = new Audio(`/sounds/${fileName}.mp3`);
-    audio.volume = this.sfxVolume;
+    const urls = [
+      `/sounds/${fileName}.mp3`,
+      `/sounds/${fileName}.mp3.mp3`
+    ];
 
-    audio.play().catch(() => {
-      // 파일이 없거나 브라우저 정책으로 실패하면 Web Audio 합성음 재생
-      fallbackFn();
-    });
+    const trySFX = (index: number) => {
+      if (index >= urls.length) {
+        fallbackFn();
+        return;
+      }
+      const audio = new Audio(urls[index]);
+      audio.volume = this.sfxVolume;
+      audio.play().catch(() => {
+        trySFX(index + 1);
+      });
+    };
+
+    trySFX(0);
   }
 
   /**
