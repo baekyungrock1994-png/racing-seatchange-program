@@ -3,7 +3,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Flag, Users, Play, Sparkles, ChevronRight, Check } from 'lucide-react';
+import { Flag, Users, Play, Sparkles, ChevronRight, Check, Bot } from 'lucide-react';
 import { CHARACTERS, CHARACTER_LIST } from '@/constants/characters';
 import { THEME_LIST } from '@/constants/themes';
 import { CharacterId, Player } from '@/types/game';
@@ -90,12 +90,21 @@ export default function HomePage() {
           </div>
         </div>
 
-        <button
-          onClick={() => router.push('/teacher')}
-          className="px-5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-800 text-amber-300 font-bold text-sm flex items-center gap-2 transition shadow-lg"
-        >
-          <Users className="w-4 h-4 text-amber-400" /> 교사 로그인 / 방 개설
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => router.push('/practice')}
+            className="px-4 py-2.5 rounded-xl bg-cyan-500/20 border border-cyan-500/40 hover:bg-cyan-500/30 text-cyan-300 font-black text-sm flex items-center gap-2 transition shadow-lg shadow-cyan-500/10"
+          >
+            <Bot className="w-4 h-4 text-cyan-400" /> 혼자 연습하기 (AI 봇 대결)
+          </button>
+
+          <button
+            onClick={() => router.push('/teacher')}
+            className="px-5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-800 text-amber-300 font-bold text-sm flex items-center gap-2 transition shadow-lg"
+          >
+            <Users className="w-4 h-4 text-amber-400" /> 교사 로그인 / 방 개설
+          </button>
+        </div>
       </header>
 
       {/* 메인 히어로 섹션 */}
@@ -152,6 +161,23 @@ export default function HomePage() {
               <h2 className="text-xl font-black text-white">학생 입장하기</h2>
               <p className="text-xs text-slate-400">선생님이 띄운 방 코드를 입력하세요</p>
             </div>
+          </div>
+
+          {/* 혼자 연습하기 배너 */}
+          <div className="mb-5 p-3.5 rounded-2xl bg-gradient-to-r from-cyan-950/70 to-slate-950 border border-cyan-500/30 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-black text-cyan-400 flex items-center gap-1.5">
+                <Bot className="w-3.5 h-3.5" /> 커스텀 레이싱 연습방
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">선생님이 방을 안 열었을 땐 혼자 AI와 연습해보세요!</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => router.push('/practice')}
+              className="px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs shrink-0 transition shadow-md shadow-cyan-500/20"
+            >
+              연습 시작
+            </button>
           </div>
 
           <form onSubmit={handleJoin} className="space-y-4">

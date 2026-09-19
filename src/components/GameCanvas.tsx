@@ -17,6 +17,7 @@ interface GameCanvasProps {
   currentPlayerId?: string;
   onSeatClaimed?: (seatId: string) => void;
   onFinishRace?: () => void;
+  onFrameUpdate?: (now: number) => void;
 }
 
 export function GameCanvas({
@@ -24,7 +25,8 @@ export function GameCanvas({
   role,
   currentPlayerId,
   onSeatClaimed,
-  onFinishRace
+  onFinishRace,
+  onFrameUpdate
 }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -205,6 +207,9 @@ export function GameCanvas({
       const height = canvas.height = window.innerHeight;
       const map = mapDataRef.current;
       const now = Date.now();
+
+      // 커스텀 프레임 업데이트 콜백 (예: AI 연습 모드 봇 물리 연산)
+      onFrameUpdate?.(now);
 
       // 1. 학생인 경우 로컬 물리 연산 (60FPS Client Prediction)
       if (role === 'student' && localPlayerRef.current && room.status === 'RACING') {
