@@ -14,18 +14,18 @@ export class SeatManager {
     const seats: Record<string, Seat> = {};
 
     // 칠판 및 입구 여백
-    const paddingX = 80;
-    const paddingTop = 160; // 칠판/교탁 영역을 위한 상단 여유
-    const paddingBottom = 90;
+    const paddingX = 130;
+    const paddingTop = 230; // 칠판/교탁 영역을 위한 상단 여유
+    const paddingBottom = 140;
     const availableWidth = classroomArea.width - paddingX * 2;
     const availableHeight = classroomArea.height - (paddingTop + paddingBottom);
 
     const slotWidth = availableWidth / cols;
     const slotHeight = availableHeight / rows;
 
-    // 카트 폭(32px) 기준 2대(64px) 이상이 넉넉하게 교행할 수 있는 통로 폭(최소 105px) 보장
-    const seatWidth = Math.min(74, Math.max(56, slotWidth - 105));
-    const seatHeight = Math.min(68, Math.max(52, slotHeight - 100));
+    // 카트 폭(32px) 기준 4대(128px) 이상이 넉넉하게 통과할 수 있는 대형 통로(최소 165px 이상) 보장
+    const seatWidth = Math.min(74, Math.max(56, slotWidth - 165));
+    const seatHeight = Math.min(68, Math.max(52, slotHeight - 165));
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {

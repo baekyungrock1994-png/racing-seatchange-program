@@ -185,6 +185,54 @@ export function GameCanvas({
           }
         });
 
+        // 교실 좌석 박스 물리 충돌 검사 (왼쪽, 위쪽, 오른쪽 막힘 / 배정 완료 시 아래쪽도 닫힘)
+        if (!p.isSeated && room.seatConfig?.seats) {
+          const dThick = 8;
+          for (const seat of Object.values(room.seatConfig.seats)) {
+            if (!seat.active) continue;
+
+            const sLeft = seat.x - seat.width / 2;
+            const sRight = seat.x + seat.width / 2;
+            const sTop = seat.y - seat.height / 2;
+            const sBot = seat.y + seat.height / 2;
+            const isOcc = Boolean(seat.occupiedBy);
+
+            // 1) 위쪽 벽 (막힘)
+            p = CartPhysics.handleWallCollision(p, {
+              x: sLeft - dThick,
+              y: sTop - dThick,
+              width: seat.width + dThick * 2,
+              height: dThick
+            });
+
+            // 2) 왼쪽 벽 (막힘)
+            p = CartPhysics.handleWallCollision(p, {
+              x: sLeft - dThick,
+              y: sTop,
+              width: dThick,
+              height: seat.height
+            });
+
+            // 3) 오른쪽 벽 (막힘)
+            p = CartPhysics.handleWallCollision(p, {
+              x: sRight,
+              y: sTop,
+              width: dThick,
+              height: seat.height
+            });
+
+            // 4) 아래쪽 문: 자리에 배정 완료되면 아래쪽도 닫혀서 다른 카트 차단
+            if (isOcc) {
+              p = CartPhysics.handleWallCollision(p, {
+                x: sLeft - dThick,
+                y: sBot,
+                width: seat.width + dThick * 2,
+                height: dThick
+              });
+            }
+          }
+        }
+
         // 아이템 상자 충돌 검사
         map.itemBoxes.forEach((box) => {
           if (box.isAvailable) {
@@ -463,8 +511,8 @@ function drawClassroomArea(
   ctx.strokeRect(ca.x, ca.y, ca.width, ca.height);
 
   // 칠판 (상단 중앙)
-  const bbWidth = 520;
-  const bbHeight = 55;
+  const bbWidth = 600;
+  const bbHeight = 60;
   ctx.fillStyle = '#065F46';
   ctx.fillRect(ca.x + ca.width / 2 - bbWidth / 2, ca.y + 25, bbWidth, bbHeight);
   ctx.strokeStyle = '#047857';
@@ -473,7 +521,7 @@ function drawClassroomArea(
   ctx.fillStyle = '#A7F3D0';
   ctx.font = 'black 22px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('칠  판 (교탁 / 앞 쪽)', ca.x + ca.width / 2, ca.y + 60);
+  ctx.fillText('칠  판 (교탁 / 앞 쪽)', ca.x + ca.width / 2, ca.y + 62);
 
   // 상자 모양 좌석 렌더링
   Object.values(seats).forEach((seat) => {

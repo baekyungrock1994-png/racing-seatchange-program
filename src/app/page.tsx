@@ -47,9 +47,9 @@ export default function HomePage() {
       number: Number(studentNumber),
       characterId: selectedCharId,
       color: CHARACTERS[selectedCharId].themeColor,
-      // 시작 좌표는 출발선(x: 230~340, y: 2050~2110) 3차선 트랙 내부 배치
+      // 시작 좌표는 출발선(x: 230~340, y: 2450~2510) 3차선 트랙 내부 배치
       x: 230 + Math.random() * 110,
-      y: 2060 + Math.random() * 50,
+      y: 2460 + Math.random() * 50,
       vx: 0,
       vy: 0,
       angle: 0, // 북쪽을 바라보고 출발
