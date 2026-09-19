@@ -87,6 +87,20 @@ export function GameCanvas({
     }
   }, [currentPlayerId, room.themeId, room.status]);
 
+  // 게임 상태에 따른 배경음악(BGM) 자동 재생 및 전환
+  useEffect(() => {
+    if (room.status === 'RACING') {
+      SoundSystem.playBGM('racing');
+    } else if (room.status === 'FINISHED') {
+      SoundSystem.playBGM('finish');
+    } else if (room.status === 'LOBBY' || room.status === 'COUNTDOWN') {
+      SoundSystem.playBGM('lobby');
+    }
+    return () => {
+      SoundSystem.stopBGM();
+    };
+  }, [room.status]);
+
   // 키보드 이벤트 리스너 (학생 크롬북/PC 조작)
   useEffect(() => {
     if (role !== 'student') return;
