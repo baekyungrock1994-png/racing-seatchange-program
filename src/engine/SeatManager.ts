@@ -13,16 +13,19 @@ export class SeatManager {
   ): SeatConfig {
     const seats: Record<string, Seat> = {};
 
-    const paddingX = 50;
-    const paddingY = 80;
+    // 칠판 및 입구 여백
+    const paddingX = 80;
+    const paddingTop = 160; // 칠판/교탁 영역을 위한 상단 여유
+    const paddingBottom = 90;
     const availableWidth = classroomArea.width - paddingX * 2;
-    const availableHeight = classroomArea.height - paddingY * 2;
+    const availableHeight = classroomArea.height - (paddingTop + paddingBottom);
 
     const slotWidth = availableWidth / cols;
     const slotHeight = availableHeight / rows;
 
-    const seatWidth = Math.min(slotWidth * 0.75, 75);
-    const seatHeight = Math.min(slotHeight * 0.75, 65);
+    // 카트 폭(32px) 기준 2대(64px) 이상이 넉넉하게 교행할 수 있는 통로 폭(최소 105px) 보장
+    const seatWidth = Math.min(74, Math.max(56, slotWidth - 105));
+    const seatHeight = Math.min(68, Math.max(52, slotHeight - 100));
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
@@ -30,7 +33,7 @@ export class SeatManager {
         const isActive = activeGrid[r]?.[c] ?? true;
 
         const centerX = classroomArea.x + paddingX + c * slotWidth + slotWidth / 2;
-        const centerY = classroomArea.y + paddingY + r * slotHeight + slotHeight / 2;
+        const centerY = classroomArea.y + paddingTop + r * slotHeight + slotHeight / 2;
 
         seats[id] = {
           id,
@@ -45,7 +48,7 @@ export class SeatManager {
           y: centerY,
           width: seatWidth,
           height: seatHeight,
-          openSide: 'bottom' // 교탁을 향해 아래쪽이 열린 구조
+          openSide: 'bottom' // 아래쪽이 열린 상자 모양 구조
         };
       }
     }
@@ -58,7 +61,8 @@ export class SeatManager {
   }
 
   /**
-   * 카트가 좌석 입구를 통해 완전히 진입했는지 검사합니다.
+   * 카트가 좌석의 열려있는 하단 입구 선을 밟았는지 검사합니다.
+   * 입구 선에 닿으면 즉시 착석 성공을 반환합니다.
    */
   static tryOccupySeat(
     seat: Seat,
@@ -70,16 +74,18 @@ export class SeatManager {
 
     const halfW = seat.width / 2;
     const halfH = seat.height / 2;
+    const entranceY = seat.y + halfH; // 하단 개방 입구 선의 y좌표
 
-    // 좌석 내부 범위
-    const margin = 12;
-    const inside = 
-      player.x >= seat.x - halfW + margin &&
-      player.x <= seat.x + halfW - margin &&
-      player.y >= seat.y - halfH + margin &&
-      player.y <= seat.y + halfH - margin;
+    // 1. 좌우가 열린 입구 폭 안에 위치하는지 (약간의 자석 유도 마진 포함)
+    const isWithinX = Math.abs(player.x - seat.x) <= halfW + 8;
 
-    if (inside) {
+    // 2. 카트의 앞부분이나 중심이 하단 입구 선을 밟았거나 살짝 넘어왔는지 감지
+    // 카트 높이(52px)의 앞범퍼가 입구 선을 밟는 순간(y = entranceY + 25 ~ seat.y) 즉시 감지
+    const hasSteppedOnLine = 
+      player.y >= seat.y - 10 && 
+      player.y <= entranceY + 25;
+
+    if (isWithinX && hasSteppedOnLine) {
       const updatedSeat: Seat = {
         ...seat,
         occupiedBy: player.id,

@@ -225,21 +225,32 @@ export function GameCanvas({
           }
         });
 
-        // ㄷ자 좌석 진입 선점 검사
+        // 하단 개방 상자 좌석 입구 선 밟기 검사
         if (!p.isSeated && room.seatConfig?.seats) {
           for (const seat of Object.values(room.seatConfig.seats)) {
             if (CartPhysics.checkSeatEntry(p, seat)) {
-              // 진입 감지 -> 원자적 선점 요청!
+              // 1. 입구 선을 밟는 즉시 상자 안쪽 중앙으로 자동 안착 및 정지
               p.isSeated = true;
               p.seatedId = seat.id;
               p.speed = 0;
               p.vx = 0;
               p.vy = 0;
-              p.x = seat.x;
+              p.x = seat.x; // 상자 중앙으로 스냅
               p.y = seat.y;
+              p.angle = 0; // 칠판(북쪽)을 향해 똑바로 정렬
 
+              // 2. 상자가 즉시 닫히도록 로컬 좌석 데이터 갱신
+              if (room.seatConfig.seats[seat.id]) {
+                room.seatConfig.seats[seat.id].occupiedBy = p.id;
+                room.seatConfig.seats[seat.id].studentName = p.name;
+                room.seatConfig.seats[seat.id].studentNumber = p.number;
+                room.seatConfig.seats[seat.id].characterId = p.characterId;
+              }
+
+              // 3. 착석 효과음 및 서버/동기화 브릿지 전송
               SoundSystem.playSeatSuccess();
               SyncBridge.claimSeat(room.code, seat.id, p);
+              SyncBridge.updatePlayerPosition(room.code, p);
               onSeatClaimed?.(seat.id);
               break;
             }
@@ -312,8 +323,18 @@ export function GameCanvas({
 
       // 4. 학생 화면: Fog of War (원형 스포트라이트 시야) 마스크 오버레이
       if (role === 'student' && localPlayerRef.current) {
-        // 화면 중앙(플레이어 위치) 기준으로 어둠 마스킹
-        CameraSystem.applyFogOfWar(ctx, width, height, width / 2, height / 2, 320);
+        const p = localPlayerRef.current;
+        const ca = map.classroomArea;
+        // 플레이어가 교실 영역 근처나 내부에 들어섰는지 검사
+        const inClassroom =
+          p.x >= ca.x - 40 &&
+          p.x <= ca.x + ca.width + 40 &&
+          p.y >= ca.y - 40 &&
+          p.y <= ca.y + ca.height + 80;
+
+        // 교실에 들어서면 전체 좌석 배치를 시원하게 조망할 수 있도록 시야 대폭 확장 (720px)
+        const sightRadius = inClassroom ? 720 : 340;
+        CameraSystem.applyFogOfWar(ctx, width, height, width / 2, height / 2, sightRadius);
       }
 
       animId = requestAnimationFrame(render);
@@ -437,18 +458,20 @@ function drawClassroomArea(
   ctx.lineWidth = 6;
   ctx.strokeRect(ca.x, ca.y, ca.width, ca.height);
 
-  // 칠판 (상단)
+  // 칠판 (상단 중앙)
+  const bbWidth = 520;
+  const bbHeight = 55;
   ctx.fillStyle = '#065F46';
-  ctx.fillRect(ca.x + ca.width / 2 - 240, ca.y + 20, 480, 50);
+  ctx.fillRect(ca.x + ca.width / 2 - bbWidth / 2, ca.y + 25, bbWidth, bbHeight);
   ctx.strokeStyle = '#047857';
-  ctx.lineWidth = 3;
-  ctx.strokeRect(ca.x + ca.width / 2 - 240, ca.y + 20, 480, 50);
+  ctx.lineWidth = 4;
+  ctx.strokeRect(ca.x + ca.width / 2 - bbWidth / 2, ca.y + 25, bbWidth, bbHeight);
   ctx.fillStyle = '#A7F3D0';
-  ctx.font = 'black 20px sans-serif';
+  ctx.font = 'black 22px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('칠  판 (교탁 / 앞 쪽)', ca.x + ca.width / 2, ca.y + 52);
+  ctx.fillText('칠  판 (교탁 / 앞 쪽)', ca.x + ca.width / 2, ca.y + 60);
 
-  // ㄷ자 좌석 박스 렌더링
+  // 상자 모양 좌석 렌더링
   Object.values(seats).forEach((seat) => {
     if (!seat.active) return;
 
@@ -456,40 +479,45 @@ function drawClassroomArea(
     const top = seat.y - seat.height / 2;
     const w = seat.width;
     const h = seat.height;
-    const wallThick = 6;
+    const wallThick = 5;
 
     ctx.save();
     if (seat.occupiedBy !== null) {
-      // 1) 점유된 좌석 (초록빛 완주 & 바리케이드 잠금)
+      // 1) 점유된 좌석 (자동차가 안착되고 상자가 4면 모두 닫힘)
       ctx.fillStyle = 'rgba(16, 185, 129, 0.25)';
       ctx.fillRect(left, top, w, h);
 
+      // 상자 4면 완전 폐쇄 (상단, 좌측, 우측, 하단 문 닫힘)
       ctx.strokeStyle = '#10B981';
       ctx.lineWidth = wallThick;
       ctx.strokeRect(left, top, w, h);
 
-      // 학생 이름 & 번호 뱃지
+      // 하단 닫힌 문(도어 바리케이드) 강조
+      ctx.fillStyle = '#059669';
+      ctx.fillRect(left, top + h - 5, w, 5);
+
+      // 학생 이름 & 번호 뱃지 (상단)
       ctx.fillStyle = '#10B981';
-      ctx.fillRect(left + 4, top + 4, w - 8, 22);
+      ctx.fillRect(left + 2, top + 2, w - 4, 18);
 
       ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 12px sans-serif';
+      ctx.font = 'bold 11px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(`${seat.studentNumber}번 ${seat.studentName}`, seat.x, top + 19);
+      ctx.fillText(`${seat.studentNumber}번 ${seat.studentName}`, seat.x, top + 15);
 
       // 착석 완료 도장 마크
       ctx.fillStyle = '#34D399';
-      ctx.font = 'black 11px sans-serif';
-      ctx.fillText('착석 완료', seat.x, top + h - 14);
+      ctx.font = 'black 10px sans-serif';
+      ctx.fillText('✔ 착석완료 (닫힘)', seat.x, top + h - 10);
     } else {
-      // 2) 빈 좌석 (디귿자(ㄷ) 한 면이 열린 사각형)
-      ctx.fillStyle = 'rgba(245, 158, 11, 0.1)';
+      // 2) 빈 좌석 (아래쪽이 열려있는 상자 모양 + 하단 입구 선)
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.08)';
       ctx.fillRect(left, top, w, h);
 
       ctx.strokeStyle = '#F59E0B';
       ctx.lineWidth = wallThick;
 
-      // ㄷ자 벽 그리기 (상단, 좌측, 우측 막힘 / 하단 열림)
+      // ㄷ자 상자 벽 (좌측, 상단, 우측 벽 막힘 / 하단 개방)
       ctx.beginPath();
       ctx.moveTo(left, top + h);       // 좌측 하단 시작
       ctx.lineTo(left, top);           // 좌측 벽
@@ -497,16 +525,26 @@ function drawClassroomArea(
       ctx.lineTo(left + w, top + h);   // 우측 벽
       ctx.stroke();
 
-      // 입구 표시 화살표 (▲ 진입 방향)
-      ctx.fillStyle = '#F59E0B';
-      ctx.font = 'bold 12px sans-serif';
+      // ★ 열려있는 곳의 선 (하단 입구 선): 밟으면 차가 상자 안으로 들어가고 상자가 닫힘!
+      ctx.strokeStyle = '#38BDF8';
+      ctx.lineWidth = 4;
+      ctx.setLineDash([6, 4]); // 눈에 띄는 점선 입구 선
+      ctx.beginPath();
+      ctx.moveTo(left, top + h);
+      ctx.lineTo(left + w, top + h);
+      ctx.stroke();
+      ctx.setLineDash([]); // 복원
+
+      // 입구 선 안내 텍스트
+      ctx.fillStyle = '#38BDF8';
+      ctx.font = 'bold 10px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('▲ 입구', seat.x, top + h - 6);
+      ctx.fillText('▼ 입구 선 ▼', seat.x, top + h + 14);
 
       // 좌석 번호
       ctx.fillStyle = '#FDE68A';
       ctx.font = 'bold 13px sans-serif';
-      ctx.fillText(`${seat.row + 1}-${seat.col + 1}`, seat.x, seat.y);
+      ctx.fillText(`${seat.row + 1}-${seat.col + 1}`, seat.x, seat.y + 4);
     }
     ctx.restore();
   });

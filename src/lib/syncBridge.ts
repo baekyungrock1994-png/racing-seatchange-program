@@ -213,11 +213,17 @@ export class SyncBridge {
       });
 
       if (result.committed) {
-        // 플레이어 상태도 갱신
+        // 플레이어 상태도 완주 안착(속도 0, 칠판 정렬, 좌석 좌표)으로 즉시 갱신
         await update(ref(db, `rooms/${roomCode}/players/${player.id}`), {
           isSeated: true,
           seatedId: seatId,
-          seatTime: Date.now()
+          seatTime: Date.now(),
+          x: Math.round(player.x * 10) / 10,
+          y: Math.round(player.y * 10) / 10,
+          angle: 0,
+          speed: 0,
+          vx: 0,
+          vy: 0
         });
         return true;
       }
@@ -237,6 +243,12 @@ export class SyncBridge {
             room.players[player.id].isSeated = true;
             room.players[player.id].seatedId = seatId;
             room.players[player.id].seatTime = Date.now();
+            room.players[player.id].x = player.x;
+            room.players[player.id].y = player.y;
+            room.players[player.id].angle = 0;
+            room.players[player.id].speed = 0;
+            room.players[player.id].vx = 0;
+            room.players[player.id].vy = 0;
           }
 
           this.saveLocalRoom(room);

@@ -191,8 +191,8 @@ export class CartPhysics {
   }
 
   /**
-   * 결승선 교실 좌석(ㄷ자 구조) 진입 여부를 감지합니다.
-   * 좌석 박스는 한 면이 열려 있습니다. (예: 아래쪽 openSide='bottom')
+   * 결승선 교실 좌석(아래가 열린 상자 모양) 진입 여부를 감지합니다.
+   * 첫 번째로 도착한 자동차가 열려있는 곳의 선(입구 선)을 밟으면 즉시 감지됩니다.
    */
   static checkSeatEntry(
     player: Player,
@@ -200,20 +200,18 @@ export class CartPhysics {
   ): boolean {
     if (!seat.active || seat.occupiedBy !== null) return false;
 
-    // 카트 중심점이 좌석 박스 내부 중앙 영역에 완전히 들어왔는지 확인
-    const seatLeft = seat.x - seat.width / 2;
-    const seatRight = seat.x + seat.width / 2;
-    const seatTop = seat.y - seat.height / 2;
-    const seatBottom = seat.y + seat.height / 2;
+    const halfW = seat.width / 2;
+    const halfH = seat.height / 2;
+    const entranceY = seat.y + halfH; // 상자의 열려있는 하단 입구 선
 
-    // 내부 여유 마진 (너무 입구만 닿아도 안 되고, 확실히 들어왔을 때 인정)
-    const margin = 10;
-    const isInside = 
-      player.x >= seatLeft + margin &&
-      player.x <= seatRight - margin &&
-      player.y >= seatTop + margin &&
-      player.y <= seatBottom - margin;
+    // 1. 좌석 입구 가로 폭 내에 있는지 (약간의 여유 마진 10px 허용)
+    const isWithinX = Math.abs(player.x - seat.x) <= halfW + 10;
 
-    return isInside;
+    // 2. 카트의 앞범퍼나 바퀴가 하단 열린 입구 선을 밟았거나 살짝 넘어왔는지 검사
+    const hasSteppedOnEntranceLine =
+      player.y >= seat.y - 15 &&
+      player.y <= entranceY + 26;
+
+    return isWithinX && hasSteppedOnEntranceLine;
   }
 }
