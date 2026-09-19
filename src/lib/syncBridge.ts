@@ -107,19 +107,23 @@ export class SyncBridge {
     player: Player
   ): Promise<void> {
     if (isFirebaseConfigured && db) {
-      await update(ref(db, `rooms/${roomCode}/players/${player.id}`), {
-        x: Math.round(player.x * 10) / 10,
-        y: Math.round(player.y * 10) / 10,
-        angle: Math.round(player.angle),
-        speed: Math.round(player.speed * 10) / 10,
-        vx: Math.round(player.vx * 10) / 10,
-        vy: Math.round(player.vy * 10) / 10,
-        activeEffect: player.activeEffect,
-        effectEndTime: player.effectEndTime,
-        isSeated: player.isSeated,
-        seatedId: player.seatedId,
-        lastActive: Date.now()
-      });
+      try {
+        await update(ref(db, `rooms/${roomCode}/players/${player.id}`), {
+          x: Math.round(player.x * 10) / 10,
+          y: Math.round(player.y * 10) / 10,
+          angle: Math.round(player.angle),
+          speed: Math.round(player.speed * 10) / 10,
+          vx: Math.round(player.vx * 10) / 10,
+          vy: Math.round(player.vy * 10) / 10,
+          activeEffect: player.activeEffect ?? null,
+          effectEndTime: player.effectEndTime ?? 0,
+          isSeated: player.isSeated ?? false,
+          seatedId: player.seatedId ?? null,
+          lastActive: Date.now()
+        });
+      } catch (err) {
+        console.error('[SyncBridge] Error updating player position:', err);
+      }
     } else {
       const room = this.getLocalRoom(roomCode);
       if (room && room.players) {

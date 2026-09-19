@@ -321,43 +321,53 @@ export function GameCanvas({
 // --- 캔버스 드로잉 서브 루틴들 ---
 
 function drawTrackGuides(ctx: CanvasRenderingContext2D, map: CircuitMapData) {
-  // 트랙 바닥 아스팔트 경로를 시각적으로 풍성하게 표현
   ctx.save();
+  // 1. 아스팔트 트랙 도로망 렌더링 (폐쇄형 고속 서킷)
   ctx.fillStyle = map.bgColors.track;
-  
-  // 1구간 (출발선 ~ 상단 코너)
-  ctx.fillRect(160, 400, 480, 1700);
-  // 상단 수평 직선 구간
-  ctx.fillRect(160, 400, 1600, 380);
-  // 중앙 S자 구간
-  ctx.fillRect(1350, 400, 320, 1600);
-  ctx.fillRect(1350, 1650, 650, 350);
-  // 교실 진입 직선로
-  ctx.fillRect(1750, 1100, 350, 900);
+
+  // 1구간: 출발선 및 서쪽 메인 직선 주로 (x: 60 ~ 580, y: 480 ~ 2100)
+  ctx.fillRect(60, 480, 520, 1620);
+
+  // 2구간: 1번 코너 및 상단 직선 주로 (x: 60 ~ 1900, y: 60 ~ 480)
+  ctx.fillRect(60, 60, 1840, 420);
+
+  // 3구간: 중앙 지그재그 슬라럼 테크니컬 코스
+  // 우측 다운힐 (x: 1050 ~ 1900, y: 480 ~ 850)
+  ctx.fillRect(1050, 480, 850, 370);
+  // 좌측 슬라럼 턴 (x: 640 ~ 1400, y: 850 ~ 1250)
+  ctx.fillRect(640, 850, 760, 400);
+  // 우측 슬라럼 턴 (x: 1400 ~ 1920, y: 1250 ~ 1650)
+  ctx.fillRect(1400, 1250, 520, 400);
+  // 하단 턴 (x: 640 ~ 1920, y: 1650 ~ 2150)
+  ctx.fillRect(640, 1650, 1280, 500);
+
+  // 4구간: 교실 진입 도로 (x: 1920 ~ 2450, y: 1250 ~ 2150)
+  ctx.fillRect(1920, 1250, 530, 900);
+
   ctx.restore();
 
-  // 외곽 벽 및 유도 가벽 렌더링
+  // 2. 가드레일 (외벽 및 트랙 분리벽) 렌더링
   map.walls.forEach((wall) => {
     ctx.save();
     ctx.fillStyle = wall.color || '#334155';
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-    ctx.shadowBlur = 10;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 8;
     ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
 
-    // 가드레일 줄무늬 디테일
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    // 가드레일 옐로우/화이트 스트라이프 디테일
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
     ctx.lineWidth = 3;
     ctx.strokeRect(wall.x + 2, wall.y + 2, wall.width - 4, wall.height - 4);
     ctx.restore();
   });
 
-  // 출발선 체크무늬 깃발 패턴
+  // 3. 출발선 체크무늬 깃발 패턴 (x: 180, y: 1950)
   ctx.save();
   const sl = map.startLine;
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(sl.x, sl.y, sl.width, sl.height);
   const tileSize = 20;
-  ctx.fillStyle = '#1E293B';
+  ctx.fillStyle = '#0F172A';
   for (let x = sl.x; x < sl.x + sl.width; x += tileSize) {
     for (let y = sl.y; y < sl.y + sl.height; y += tileSize) {
       if (((x - sl.x) / tileSize + (y - sl.y) / tileSize) % 2 === 0) {
@@ -365,6 +375,34 @@ function drawTrackGuides(ctx: CanvasRenderingContext2D, map: CircuitMapData) {
       }
     }
   }
+
+  // START 텍스트 바닥 마킹
+  ctx.fillStyle = '#F59E0B';
+  ctx.font = 'black 28px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('🏁 S T A R T 🏁', sl.x + sl.width / 2, sl.y - 15);
+  ctx.restore();
+
+  // 4. 결승선 아치 및 교실 정문 게이트 (x: 1980, y: 1250)
+  ctx.save();
+  const fl = map.finishLine;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(fl.x, fl.y, fl.width, fl.height);
+  for (let x = fl.x; x < fl.x + fl.width; x += tileSize) {
+    for (let y = fl.y; y < fl.y + fl.height; y += tileSize) {
+      if (((x - fl.x) / tileSize + (y - fl.y) / tileSize) % 2 === 0) {
+        ctx.fillStyle = '#10B981';
+        ctx.fillRect(x, y, tileSize, tileSize);
+      }
+    }
+  }
+
+  // 진입로 바닥 대형 유도 화살표
+  ctx.fillStyle = '#38BDF8';
+  ctx.font = 'black 32px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('▲ ▲ ▲ 교 실 정 문 (F I N I S H) ▲ ▲ ▲', fl.x + fl.width / 2, fl.y + 110);
+  ctx.fillText('▲ ▲ ▲ 원하는 자리에 주차하세요! ▲ ▲ ▲', fl.x + fl.width / 2, fl.y + 160);
   ctx.restore();
 }
 
@@ -376,23 +414,24 @@ function drawClassroomArea(
   const ca = map.classroomArea;
 
   ctx.save();
-  // 교실 바닥 (따뜻한 원목 마룻바닥 느낌)
+  // 교실 바닥 (클래식 학교 마룻바닥)
   ctx.fillStyle = '#1E293B';
   ctx.fillRect(ca.x, ca.y, ca.width, ca.height);
 
-  ctx.strokeStyle = '#38BDF8';
-  ctx.lineWidth = 4;
+  ctx.strokeStyle = '#10B981';
+  ctx.lineWidth = 6;
   ctx.strokeRect(ca.x, ca.y, ca.width, ca.height);
 
   // 칠판 (상단)
   ctx.fillStyle = '#065F46';
-  ctx.fillRect(ca.x + ca.width / 2 - 180, ca.y + 15, 360, 40);
+  ctx.fillRect(ca.x + ca.width / 2 - 240, ca.y + 20, 480, 50);
   ctx.strokeStyle = '#047857';
-  ctx.strokeRect(ca.x + ca.width / 2 - 180, ca.y + 15, 360, 40);
+  ctx.lineWidth = 3;
+  ctx.strokeRect(ca.x + ca.width / 2 - 240, ca.y + 20, 480, 50);
   ctx.fillStyle = '#A7F3D0';
-  ctx.font = 'bold 16px sans-serif';
+  ctx.font = 'black 20px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('칠  판 (앞  쪽)', ca.x + ca.width / 2, ca.y + 40);
+  ctx.fillText('칠  판 (교탁 / 앞 쪽)', ca.x + ca.width / 2, ca.y + 52);
 
   // ㄷ자 좌석 박스 렌더링
   Object.values(seats).forEach((seat) => {
@@ -519,7 +558,8 @@ function drawCart(
 ) {
   ctx.save();
   ctx.translate(player.x, player.y);
-  ctx.rotate((player.angle * Math.PI) / 180);
+  // 카트 일러스트 원본이 아래쪽을 바라보고 있으므로, 카트 앞머리가 진행 방향(북쪽 0도)을 향하도록 180도 회전
+  ctx.rotate(((player.angle + 180) * Math.PI) / 180);
 
   const w = DEFAULT_PHYSICS_CONFIG.cartWidth;
   const h = DEFAULT_PHYSICS_CONFIG.cartHeight;
