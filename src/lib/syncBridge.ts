@@ -23,7 +23,13 @@ export class SyncBridge {
    */
   static async createRoom(room: GameRoom): Promise<void> {
     if (isFirebaseConfigured && db) {
-      await set(ref(db, `rooms/${room.code}`), room);
+      console.log(`[SyncBridge] Creating room in Firebase: rooms/${room.code}`);
+      try {
+        await set(ref(db, `rooms/${room.code}`), room);
+        console.log(`[SyncBridge] Room created successfully in Firebase: ${room.code}`);
+      } catch (err) {
+        console.error(`[SyncBridge] Error creating room in Firebase:`, err);
+      }
     } else {
       this.localRooms[room.code] = room;
       if (typeof window !== 'undefined') {
@@ -39,11 +45,19 @@ export class SyncBridge {
    */
   static subscribeRoom(roomCode: string, onUpdate: (room: GameRoom | null) => void): () => void {
     if (isFirebaseConfigured && db) {
+      console.log(`[SyncBridge] Subscribing to Firebase rooms/${roomCode}`);
       const roomRef = ref(db, `rooms/${roomCode}`);
-      const unsub: Unsubscribe = onValue(roomRef, (snapshot) => {
-        const val = snapshot.val();
-        onUpdate(val ? (val as GameRoom) : null);
-      });
+      const unsub: Unsubscribe = onValue(
+        roomRef,
+        (snapshot) => {
+          const val = snapshot.val();
+          console.log(`[SyncBridge] Firebase rooms/${roomCode} snapshot:`, val);
+          onUpdate(val ? (val as GameRoom) : null);
+        },
+        (error) => {
+          console.error(`[SyncBridge] Firebase onValue Error on room ${roomCode}:`, error);
+        }
+      );
       return () => unsub();
     } else {
       // Local BroadcastChannel 모드
@@ -120,7 +134,13 @@ export class SyncBridge {
    */
   static async joinPlayer(roomCode: string, player: Player): Promise<void> {
     if (isFirebaseConfigured && db) {
-      await set(ref(db, `rooms/${roomCode}/players/${player.id}`), player);
+      console.log(`[SyncBridge] Joining player ${player.id} to rooms/${roomCode}`);
+      try {
+        await set(ref(db, `rooms/${roomCode}/players/${player.id}`), player);
+        console.log(`[SyncBridge] Player joined successfully: ${player.name}`);
+      } catch (err) {
+        console.error(`[SyncBridge] Error joining player to Firebase:`, err);
+      }
     } else {
       const room = this.getLocalRoom(roomCode);
       if (room) {

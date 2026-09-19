@@ -20,28 +20,49 @@ function StudentGameContent() {
   const playerId = searchParams.get('playerId') || '';
 
   const [room, setRoom] = useState<GameRoom | null>(null);
-  const [player, setPlayer] = useState<Player | null>(null);
+  const [player, setPlayer] = useState<Player | null>(() => {
+    if (typeof window !== 'undefined' && roomCode) {
+      const stored = localStorage.getItem(`racing_player_${roomCode}`);
+      if (stored) {
+        try {
+          return JSON.parse(stored);
+        } catch {
+          return null;
+        }
+      }
+    }
+    return null;
+  });
   const [isMobileMode, setIsMobileMode] = useState(false);
+  const [waitTooLong, setWaitTooLong] = useState(false);
 
   // 실시간 방 상태 구독
   useEffect(() => {
     if (!roomCode) return;
 
+    const timer = setTimeout(() => {
+      setWaitTooLong(true);
+    }, 4000);
+
     const unsub = SyncBridge.subscribeRoom(roomCode, (updated) => {
+      console.log('[StudentPage] Room updated:', updated);
       if (updated) {
         setRoom(updated);
+        setWaitTooLong(false);
         if (playerId && updated.players?.[playerId]) {
           setPlayer(updated.players[playerId]);
         }
       }
     });
 
-    return () => unsub();
+    return () => {
+      clearTimeout(timer);
+      unsub();
+    };
   }, [roomCode, playerId]);
 
   // 로컬 모바일 컨트롤러 입력 핸들러
   const handleMobileInput = (inputUpdate: Partial<ControlInput>) => {
-    // 키보드 이벤트와 동등하게 Window KeyboardEvent를 트리거하여 일관된 물리 루프 처리
     const keyMap: Record<keyof ControlInput, string> = {
       forward: 'ArrowUp',
       backward: 'ArrowDown',
@@ -80,7 +101,20 @@ function StudentGameContent() {
       <main className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center">
         <Loader2 className="w-10 h-10 text-cyan-400 animate-spin mb-4" />
         <h2 className="text-xl font-black">레이싱 경기장에 입장 중...</h2>
-        <p className="text-xs text-slate-400 mt-1">방 코드: {roomCode}</p>
+        <p className="text-xs text-slate-400 mt-1">방 코드: <strong className="text-amber-400">{roomCode}</strong></p>
+
+        {waitTooLong && (
+          <div className="mt-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 max-w-sm text-xs leading-relaxed animate-fade-in">
+            <p className="font-bold mb-2">선생님이 아직 방을 열지 않았거나, 방 코드가 다를 수 있습니다.</p>
+            <p className="text-slate-400 mb-3">선생님 화면의 6자리 방 코드와 일치하는지 확인해 주세요.</p>
+            <button
+              onClick={() => router.push('/')}
+              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold"
+            >
+              방 코드 다시 입력하기
+            </button>
+          </div>
+        )}
       </main>
     );
   }
