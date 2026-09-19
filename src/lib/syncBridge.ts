@@ -156,12 +156,23 @@ export class SyncBridge {
    */
   static async updateRoomStatus(roomCode: string, status: RoomStatus, countdown: number = 3): Promise<void> {
     if (isFirebaseConfigured && db) {
-      await update(ref(db, `rooms/${roomCode}`), {
+      const payload: Record<string, unknown> = {
         status,
-        countdown,
-        startedAt: status === 'RACING' ? Date.now() : undefined,
-        finishedAt: status === 'FINISHED' ? Date.now() : undefined
-      });
+        countdown
+      };
+      if (status === 'RACING') {
+        payload.startedAt = Date.now();
+      }
+      if (status === 'FINISHED') {
+        payload.finishedAt = Date.now();
+      }
+
+      try {
+        await update(ref(db, `rooms/${roomCode}`), payload);
+        console.log(`[SyncBridge] Room ${roomCode} status updated to ${status}`);
+      } catch (err) {
+        console.error(`[SyncBridge] Error updating room status:`, err);
+      }
     } else {
       const room = this.getLocalRoom(roomCode);
       if (room) {
