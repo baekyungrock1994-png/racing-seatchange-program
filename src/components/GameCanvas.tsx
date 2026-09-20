@@ -60,6 +60,9 @@ export function GameCanvas({
   // Throttling용 이전 전송 시각
   const lastSyncTimeRef = useRef(0);
 
+  // 교실 미니맵 알파 페이드인/아웃 상태
+  const minimapAlphaRef = useRef(0);
+
   // 이미지 프리로드
   useEffect(() => {
     mapDataRef.current = CircuitMaps.getMap(room.themeId);
@@ -487,20 +490,38 @@ export function GameCanvas({
 
       ctx.restore();
 
-      // 4. 학생 화면: Fog of War (원형 스포트라이트 시야) 마스크 오버레이
+      // 4. 학생 화면: Fog of War (원형 스포트라이트 시야) 마스크 오버레이 및 교실 내비 미니맵
       if (role === 'student' && localPlayerRef.current) {
         const p = localPlayerRef.current;
         const ca = map.classroomArea;
-        // 플레이어가 교실 영역 근처나 내부에 들어섰는지 검사
+        // 플레이어가 교실 영역 근처나 내부에 들어섰는지 검사 (결승선 통과 시점부터 감지)
         const inClassroom =
-          p.x >= ca.x - 40 &&
-          p.x <= ca.x + ca.width + 40 &&
-          p.y >= ca.y - 40 &&
-          p.y <= ca.y + ca.height + 80;
+          p.x >= ca.x - 60 &&
+          p.x <= ca.x + ca.width + 60 &&
+          p.y >= ca.y - 60 &&
+          p.y <= ca.y + ca.height + 120;
 
         // 교실에 들어서면 전체 좌석 배치를 시원하게 조망할 수 있도록 시야 대폭 확장 (720px)
         const sightRadius = inClassroom ? 720 : 340;
         CameraSystem.applyFogOfWar(ctx, width, height, width / 2, height / 2, sightRadius);
+
+        // 교실 미니맵 페이드인/아웃 부드러운 전환
+        const targetAlpha = inClassroom ? 1.0 : 0.0;
+        minimapAlphaRef.current += (targetAlpha - minimapAlphaRef.current) * 0.12;
+
+        if (minimapAlphaRef.current > 0.01) {
+          drawClassroomMinimap(
+            ctx,
+            map,
+            p,
+            playersToRender,
+            room.seatConfig?.seats || {},
+            width,
+            height,
+            minimapAlphaRef.current,
+            now
+          );
+        }
       }
 
       animId = requestAnimationFrame(render);
@@ -851,6 +872,280 @@ function drawCart(
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(label, 0, 0);
+
+  ctx.restore();
+}
+
+/**
+ * 결승선을 통과하여 교실에 들어선 레이서를 위한 좌측 상단 실시간 교실 미니맵 HUD
+ */
+function drawClassroomMinimap(
+  ctx: CanvasRenderingContext2D,
+  map: CircuitMapData,
+  localPlayer: Player,
+  allPlayers: Record<string, Player>,
+  seats: Record<string, Seat>,
+  screenWidth: number,
+  screenHeight: number,
+  alpha: number,
+  now: number
+) {
+  const ca = map.classroomArea;
+  if (!ca) return;
+
+  // 미니맵 카드 크기 및 위치 (좌상단 프로필 / 순위 카드 아래)
+  const mmW = Math.min(230, Math.max(185, screenWidth * 0.35));
+  const mmH = Math.min(225, Math.max(180, screenHeight * 0.32));
+  const mmX = 14;
+  const mmY = 76;
+
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+
+  // 1. 미니맵 외곽 카드 그림자 & 글래스모피즘 딥 다크 배경
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+
+  if (typeof ctx.roundRect === 'function') {
+    ctx.beginPath();
+    ctx.roundRect(mmX, mmY, mmW, mmH, 14);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  } else {
+    ctx.fillRect(mmX, mmY, mmW, mmH);
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(mmX, mmY, mmW, mmH);
+  }
+
+  // 2. 상단 헤더 바
+  const headerH = 26;
+  ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+  if (typeof ctx.roundRect === 'function') {
+    ctx.beginPath();
+    ctx.roundRect(mmX + 1, mmY + 1, mmW - 2, headerH, [13, 13, 0, 0]);
+    ctx.fill();
+  } else {
+    ctx.fillRect(mmX + 1, mmY + 1, mmW - 2, headerH);
+  }
+
+  // 실시간 레이더 인디케이터 닷 (반짝임)
+  const radarBlink = Math.sin(now * 0.007) > 0;
+  ctx.fillStyle = radarBlink ? '#10B981' : '#059669';
+  ctx.beginPath();
+  ctx.arc(mmX + 12, mmY + headerH / 2, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 헤더 타이틀
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🏫 교실 안내도 (내 위치)', mmX + 22, mmY + headerH / 2);
+
+  // 3. 교실 평면도 내부 뷰포트
+  const footerH = 24;
+  const mapPadX = 8;
+  const innerX = mmX + mapPadX;
+  const innerY = mmY + headerH + 6;
+  const innerW = mmW - mapPadX * 2;
+  const innerH = mmH - headerH - footerH - 10;
+
+  // 교실 바닥
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(innerX, innerY, innerW, innerH);
+  ctx.strokeStyle = 'rgba(51, 65, 85, 0.8)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(innerX, innerY, innerW, innerH);
+
+  // 월드 좌표 -> 미니맵 좌표 변환 비율
+  const scaleX = innerW / ca.width;
+  const scaleY = innerH / ca.height;
+  const toMmX = (wx: number) => innerX + (wx - ca.x) * scaleX;
+  const toMmY = (wy: number) => innerY + (wy - ca.y) * scaleY;
+
+  // (1) 칠판 (교실 상단 - 앞쪽)
+  const bbW = innerW * 0.65;
+  const bbH = 6;
+  const bbX = innerX + (innerW - bbW) / 2;
+  const bbY = innerY + 2;
+  ctx.fillStyle = '#059669';
+  ctx.fillRect(bbX, bbY, bbW, bbH);
+  ctx.fillStyle = '#6EE7B7';
+  ctx.font = 'bold 8.5px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('칠판 / 교탁 (앞쪽)', innerX + innerW / 2, bbY + bbH + 2);
+
+  // (2) 출입구 게이트 (교실 하단 - 뒤쪽)
+  const gateW = 28;
+  const gateX = innerX + innerW * 0.73; // col 11 게이트 위치
+  ctx.fillStyle = '#38BDF8';
+  ctx.fillRect(gateX - gateW / 2, innerY + innerH - 3, gateW, 3);
+  ctx.font = 'bold 8px sans-serif';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('▲ 입구(뒤)', gateX, innerY + innerH - 4);
+
+  // (3) 좌석(책상) 렌더링
+  let nearestSeat: { seat: Seat; dist: number } | null = null;
+  const seatList = Object.values(seats);
+
+  seatList.forEach((seat) => {
+    if (!seat.active) return;
+    const sx = toMmX(seat.x);
+    const sy = toMmY(seat.y);
+    const sw = Math.max(7, seat.width * scaleX * 0.8);
+    const sh = Math.max(6, seat.height * scaleY * 0.8);
+
+    // 내 위치와 가장 가까운 좌석 추적
+    const d = Math.hypot(seat.x - localPlayer.x, seat.y - localPlayer.y);
+    if (!nearestSeat || d < nearestSeat.dist) {
+      nearestSeat = { seat, dist: d };
+    }
+
+    const isOccupied = Boolean(seat.occupiedBy);
+    const isMySeat = seat.occupiedBy === localPlayer.id;
+
+    if (isMySeat) {
+      // 내 좌석
+      ctx.fillStyle = '#06B6D4';
+      ctx.fillRect(sx - sw / 2, sy - sh / 2, sw, sh);
+      ctx.strokeStyle = '#67E8F9';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(sx - sw / 2, sy - sh / 2, sw, sh);
+    } else if (isOccupied) {
+      // 이미 다른 학생이 착석한 좌석
+      ctx.fillStyle = 'rgba(16, 185, 129, 0.55)';
+      ctx.fillRect(sx - sw / 2, sy - sh / 2, sw, sh);
+      ctx.strokeStyle = '#10B981';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sx - sw / 2, sy - sh / 2, sw, sh);
+    } else {
+      // 빈 좌석
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.2)';
+      ctx.fillRect(sx - sw / 2, sy - sh / 2, sw, sh);
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.75)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sx - sw / 2, sy - sh / 2, sw, sh);
+    }
+  });
+
+  // (4) 다른 플레이어들 (작은 점)
+  Object.values(allPlayers).forEach((other) => {
+    if (other.id === localPlayer.id) return;
+    if (
+      other.x >= ca.x &&
+      other.x <= ca.x + ca.width &&
+      other.y >= ca.y &&
+      other.y <= ca.y + ca.height
+    ) {
+      const ox = toMmX(other.x);
+      const oy = toMmY(other.y);
+      ctx.fillStyle = '#818CF8';
+      ctx.beginPath();
+      ctx.arc(ox, oy, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
+  // (5) ★ 내 위치 (펄스 애니메이션 + 마커 + 헤딩 화살표 + 라벨)
+  const px = toMmX(localPlayer.x);
+  const py = toMmY(localPlayer.y);
+  // 미니맵 내부로 클램핑 (진입 중이거나 경계에 있어도 위치 파악 가능)
+  const clampedX = Math.max(innerX + 5, Math.min(innerX + innerW - 5, px));
+  const clampedY = Math.max(innerY + 5, Math.min(innerY + innerH - 5, py));
+
+  // 1) 레이더 동심원 펄스 애니메이션
+  const pulsePhase = (now % 1300) / 1300;
+  const pulseRadius = 5 + pulsePhase * 13;
+  const pulseAlpha = (1 - pulsePhase) * 0.85;
+  ctx.strokeStyle = `rgba(245, 158, 11, ${pulseAlpha})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(clampedX, clampedY, pulseRadius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 2) 내 마커 중심 원
+  ctx.fillStyle = '#F59E0B';
+  ctx.beginPath();
+  ctx.arc(clampedX, clampedY, 4.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#FFFFFF';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // 3) 헤딩 방향 화살표
+  const angleRad = ((localPlayer.angle || 0) * Math.PI) / 180;
+  const arrowLen = 9;
+  const tipX = clampedX + Math.sin(angleRad) * arrowLen;
+  const tipY = clampedY - Math.cos(angleRad) * arrowLen;
+  ctx.strokeStyle = '#FDE047';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(clampedX, clampedY);
+  ctx.lineTo(tipX, tipY);
+  ctx.stroke();
+
+  // 4) "★ 나" 플로팅 태그
+  const tagText = '★ 나';
+  ctx.font = 'bold 8.5px sans-serif';
+  const tagW = ctx.measureText(tagText).width + 6;
+  const tagH = 12;
+  const tagY = clampedY - 14 < innerY + 2 ? clampedY + 12 : clampedY - 14;
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+  if (typeof ctx.roundRect === 'function') {
+    ctx.beginPath();
+    ctx.roundRect(clampedX - tagW / 2, tagY - tagH / 2, tagW, tagH, 3);
+    ctx.fill();
+  } else {
+    ctx.fillRect(clampedX - tagW / 2, tagY - tagH / 2, tagW, tagH);
+  }
+  ctx.strokeStyle = '#F59E0B';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(clampedX - tagW / 2, tagY - tagH / 2, tagW, tagH);
+  ctx.fillStyle = '#FBBF24';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(tagText, clampedX, tagY);
+
+  // 4. 하단 실시간 위치 가이드 배너
+  const footerY = mmY + mmH - footerH;
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.96)';
+  if (typeof ctx.roundRect === 'function') {
+    ctx.beginPath();
+    ctx.roundRect(mmX + 1, footerY, mmW - 2, footerH - 1, [0, 0, 13, 13]);
+    ctx.fill();
+  } else {
+    ctx.fillRect(mmX + 1, footerY, mmW - 2, footerH - 1);
+  }
+
+  // 실시간 구역 및 위치 문자열 생성
+  let locationGuide = '교실 진입 중';
+  if (localPlayer.isSeated && localPlayer.seatedId && seats[localPlayer.seatedId]) {
+    const s = seats[localPlayer.seatedId];
+    locationGuide = `착석 완료: ${s.col + 1}열 ${s.row + 1}행`;
+  } else if (nearestSeat && (nearestSeat as any).dist < 200) {
+    const s = (nearestSeat as any).seat as Seat;
+    locationGuide = `현재: ${s.col + 1}열 ${s.row + 1}행 부근`;
+  } else {
+    const relX = (localPlayer.x - ca.x) / ca.width;
+    const relY = (localPlayer.y - ca.y) / ca.height;
+    const yStr = relY < 0.35 ? '앞쪽(칠판)' : relY > 0.7 ? '뒤쪽(입구)' : '중앙';
+    const xStr = relX < 0.35 ? '좌측' : relX > 0.65 ? '우측' : '가운데';
+    locationGuide = `현재: ${xStr} ${yStr}`;
+  }
+
+  ctx.fillStyle = '#38BDF8';
+  ctx.font = 'bold 9.5px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`📍 ${locationGuide}`, mmX + mmW / 2, footerY + footerH / 2);
 
   ctx.restore();
 }
