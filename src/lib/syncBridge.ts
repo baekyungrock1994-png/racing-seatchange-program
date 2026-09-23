@@ -7,6 +7,7 @@ import {
   onValue, 
   update, 
   runTransaction, 
+  get,
   Unsubscribe 
 } from 'firebase/database';
 
@@ -124,6 +125,7 @@ export class SyncBridge {
           effectEndTime: player.effectEndTime ?? 0,
           isSeated: player.isSeated ?? false,
           seatedId: player.seatedId ?? null,
+          teleportedAt: player.teleportedAt ?? null,
           lastActive: Date.now()
         });
       } catch (err) {
@@ -480,6 +482,206 @@ export class SyncBridge {
         room.players = players;
         room.status = 'FINISHED';
         room.finishedAt = Date.now();
+        this.saveLocalRoom(room);
+      }
+    }
+  }
+
+  /**
+   * 두 플레이어의 위치를 맞교환하고 텔레포트 타임스탬프를 부여합니다.
+   */
+  static async teleportPlayers(
+    roomCode: string,
+    p1: Player,
+    p2: Player,
+    p1NewPos: { x: number; y: number },
+    p2NewPos: { x: number; y: number }
+  ): Promise<void> {
+    const now = Date.now();
+    if (isFirebaseConfigured && db) {
+      try {
+        const updates: Record<string, any> = {};
+        updates[`rooms/${roomCode}/players/${p1.id}/x`] = Math.round(p1NewPos.x * 10) / 10;
+        updates[`rooms/${roomCode}/players/${p1.id}/y`] = Math.round(p1NewPos.y * 10) / 10;
+        updates[`rooms/${roomCode}/players/${p1.id}/speed`] = 0;
+        updates[`rooms/${roomCode}/players/${p1.id}/vx`] = 0;
+        updates[`rooms/${roomCode}/players/${p1.id}/vy`] = 0;
+        updates[`rooms/${roomCode}/players/${p1.id}/teleportedAt`] = now;
+        updates[`rooms/${roomCode}/players/${p1.id}/lastActive`] = now;
+
+        updates[`rooms/${roomCode}/players/${p2.id}/x`] = Math.round(p2NewPos.x * 10) / 10;
+        updates[`rooms/${roomCode}/players/${p2.id}/y`] = Math.round(p2NewPos.y * 10) / 10;
+        updates[`rooms/${roomCode}/players/${p2.id}/speed`] = 0;
+        updates[`rooms/${roomCode}/players/${p2.id}/vx`] = 0;
+        updates[`rooms/${roomCode}/players/${p2.id}/vy`] = 0;
+        updates[`rooms/${roomCode}/players/${p2.id}/teleportedAt`] = now;
+        updates[`rooms/${roomCode}/players/${p2.id}/lastActive`] = now;
+
+        await update(ref(db), updates);
+      } catch (err) {
+        console.error('[SyncBridge] Error in teleportPlayers:', err);
+      }
+    } else {
+      const room = this.getLocalRoom(roomCode);
+      if (room && room.players) {
+        if (room.players[p1.id]) {
+          room.players[p1.id].x = p1NewPos.x;
+          room.players[p1.id].y = p1NewPos.y;
+          room.players[p1.id].speed = 0;
+          room.players[p1.id].vx = 0;
+          room.players[p1.id].vy = 0;
+          room.players[p1.id].teleportedAt = now;
+        }
+        if (room.players[p2.id]) {
+          room.players[p2.id].x = p2NewPos.x;
+          room.players[p2.id].y = p2NewPos.y;
+          room.players[p2.id].speed = 0;
+          room.players[p2.id].vx = 0;
+          room.players[p2.id].vy = 0;
+          room.players[p2.id].teleportedAt = now;
+        }
+        this.saveLocalRoom(room);
+      }
+    }
+  }
+
+  /**
+   * 교사용: 결과 화면에서 학생의 위치를 강제로 이동하거나 맞교환(Swap)합니다.
+   * - 빈 좌석으로 이동 시: 이전 좌석은 비우고 대상 좌석에 배정
+   * - 다른 학생이 이미 있는 좌석으로 이동 시: 두 학생의 좌석을 서로 교환(Swap)
+   * - 중복 배치되어 있던 학생의 경우: 해당 학생만 분리 이동
+   */
+  static async moveOrSwapSeat(
+    roomCode: string,
+    source: { playerId: string; seatId?: string | null },
+    targetSeatId: string
+  ): Promise<void> {
+    if (isFirebaseConfigured && db) {
+      try {
+        const roomSnapshot = await get(ref(db, `rooms/${roomCode}`));
+        if (!roomSnapshot.exists()) return;
+        const roomData = roomSnapshot.val() as GameRoom;
+        const seats = roomData.seatConfig?.seats;
+        const players = roomData.players;
+        if (!seats || !players) return;
+
+        const sourcePlayer = players[source.playerId];
+        const targetSeat = seats[targetSeatId];
+        if (!sourcePlayer || !targetSeat) return;
+
+        const updates: Record<string, any> = {};
+        const targetOccupantId = targetSeat.occupiedBy;
+        const targetPlayer = targetOccupantId && players[targetOccupantId] ? players[targetOccupantId] : null;
+
+        if (targetPlayer && targetPlayer.id !== sourcePlayer.id) {
+          // 대상 좌석에 다른 학생이 이미 있음 -> Swap 또는 교체
+          if (source.seatId && source.seatId !== targetSeatId) {
+            // 맞교환 (Swap)
+            updates[`rooms/${roomCode}/seatConfig/seats/${source.seatId}/occupiedBy`] = targetPlayer.id;
+            updates[`rooms/${roomCode}/seatConfig/seats/${source.seatId}/studentName`] = targetPlayer.name;
+            updates[`rooms/${roomCode}/seatConfig/seats/${source.seatId}/studentNumber`] = targetPlayer.number;
+            updates[`rooms/${roomCode}/seatConfig/seats/${source.seatId}/characterId`] = targetPlayer.characterId;
+
+            updates[`rooms/${roomCode}/players/${targetPlayer.id}/seatedId`] = source.seatId;
+            updates[`rooms/${roomCode}/players/${targetPlayer.id}/isSeated`] = true;
+          } else {
+            // source 좌석이 없었던 경우: 기존 학생은 미배치 상태로 변경
+            updates[`rooms/${roomCode}/players/${targetPlayer.id}/seatedId`] = null;
+            updates[`rooms/${roomCode}/players/${targetPlayer.id}/isSeated`] = false;
+          }
+        } else {
+          // 대상 좌석이 비어있음 -> 이전 좌석 정리
+          if (source.seatId && source.seatId !== targetSeatId) {
+            // 이전 좌석에 혹시 다른 학생이 겹쳐 있었는지 확인
+            const otherInSource = Object.values(players).find(
+              p => p.id !== sourcePlayer.id && p.seatedId === source.seatId
+            );
+            if (otherInSource) {
+              // 겹쳐있던 다른 학생 정보로 좌석 정상화
+              updates[`rooms/${roomCode}/seatConfig/seats/${source.seatId}/occupiedBy`] = otherInSource.id;
+              updates[`rooms/${roomCode}/seatConfig/seats/${source.seatId}/studentName`] = otherInSource.name;
+              updates[`rooms/${roomCode}/seatConfig/seats/${source.seatId}/studentNumber`] = otherInSource.number;
+              updates[`rooms/${roomCode}/seatConfig/seats/${source.seatId}/characterId`] = otherInSource.characterId;
+            } else {
+              // 완전한 빈 좌석으로 리셋
+              updates[`rooms/${roomCode}/seatConfig/seats/${source.seatId}/occupiedBy`] = null;
+              updates[`rooms/${roomCode}/seatConfig/seats/${source.seatId}/studentName`] = null;
+              updates[`rooms/${roomCode}/seatConfig/seats/${source.seatId}/studentNumber`] = null;
+              updates[`rooms/${roomCode}/seatConfig/seats/${source.seatId}/characterId`] = null;
+            }
+          }
+        }
+
+        // 대상 좌석에 sourcePlayer 배정
+        updates[`rooms/${roomCode}/seatConfig/seats/${targetSeatId}/occupiedBy`] = sourcePlayer.id;
+        updates[`rooms/${roomCode}/seatConfig/seats/${targetSeatId}/studentName`] = sourcePlayer.name;
+        updates[`rooms/${roomCode}/seatConfig/seats/${targetSeatId}/studentNumber`] = sourcePlayer.number;
+        updates[`rooms/${roomCode}/seatConfig/seats/${targetSeatId}/characterId`] = sourcePlayer.characterId;
+
+        updates[`rooms/${roomCode}/players/${sourcePlayer.id}/seatedId`] = targetSeatId;
+        updates[`rooms/${roomCode}/players/${sourcePlayer.id}/isSeated`] = true;
+
+        await update(ref(db), updates);
+      } catch (err) {
+        console.error('[SyncBridge] Error in moveOrSwapSeat:', err);
+      }
+    } else {
+      // 로컬 스토리지 기반
+      const room = this.getLocalRoom(roomCode);
+      if (room && room.seatConfig?.seats && room.players) {
+        const seats = room.seatConfig.seats;
+        const players = room.players;
+        const sourcePlayer = players[source.playerId];
+        const targetSeat = seats[targetSeatId];
+        if (!sourcePlayer || !targetSeat) return;
+
+        const targetOccupantId = targetSeat.occupiedBy;
+        const targetPlayer = targetOccupantId && players[targetOccupantId] ? players[targetOccupantId] : null;
+
+        if (targetPlayer && targetPlayer.id !== sourcePlayer.id) {
+          if (source.seatId && source.seatId !== targetSeatId && seats[source.seatId]) {
+            // 맞교환 (Swap)
+            const sSeat = seats[source.seatId];
+            sSeat.occupiedBy = targetPlayer.id;
+            sSeat.studentName = targetPlayer.name;
+            sSeat.studentNumber = targetPlayer.number;
+            sSeat.characterId = targetPlayer.characterId;
+
+            targetPlayer.seatedId = source.seatId;
+            targetPlayer.isSeated = true;
+          } else {
+            targetPlayer.seatedId = null;
+            targetPlayer.isSeated = false;
+          }
+        } else {
+          if (source.seatId && source.seatId !== targetSeatId && seats[source.seatId]) {
+            const sSeat = seats[source.seatId];
+            const otherInSource = Object.values(players).find(
+              p => p.id !== sourcePlayer.id && p.seatedId === source.seatId
+            );
+            if (otherInSource) {
+              sSeat.occupiedBy = otherInSource.id;
+              sSeat.studentName = otherInSource.name;
+              sSeat.studentNumber = otherInSource.number;
+              sSeat.characterId = otherInSource.characterId;
+            } else {
+              sSeat.occupiedBy = null;
+              sSeat.studentName = null;
+              sSeat.studentNumber = null;
+              sSeat.characterId = null;
+            }
+          }
+        }
+
+        // 대상 좌석에 sourcePlayer 배정
+        targetSeat.occupiedBy = sourcePlayer.id;
+        targetSeat.studentName = sourcePlayer.name;
+        targetSeat.studentNumber = sourcePlayer.number;
+        targetSeat.characterId = sourcePlayer.characterId;
+
+        sourcePlayer.seatedId = targetSeatId;
+        sourcePlayer.isSeated = true;
+
         this.saveLocalRoom(room);
       }
     }

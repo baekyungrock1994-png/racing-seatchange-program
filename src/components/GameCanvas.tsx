@@ -63,6 +63,9 @@ export function GameCanvas({
   // 교실 미니맵 알파 페이드인/아웃 상태
   const minimapAlphaRef = useRef(0);
 
+  // 텔레포트 수신 감지용 이전 타임스탬프
+  const lastTeleportTimeRef = useRef(0);
+
   // 이미지 프리로드
   useEffect(() => {
     mapDataRef.current = CircuitMaps.getMap(room.themeId);
@@ -107,13 +110,24 @@ export function GameCanvas({
     };
   }, [room.status]);
 
-  // 서버 미착석 상태와 로컬 물리 상태 실시간 동기화
+  // 서버 미착석 상태 및 텔레포트 강제 이동과 로컬 물리 상태 실시간 동기화
   useEffect(() => {
     if (role === 'student' && currentPlayerId && room.players?.[currentPlayerId]) {
       const serverPlayer = room.players[currentPlayerId];
       if (!serverPlayer.isSeated && localPlayerRef.current?.isSeated) {
         localPlayerRef.current.isSeated = false;
         localPlayerRef.current.seatedId = null;
+      }
+      // 다른 플레이어에 의해 텔레포트되었을 때 로컬 물리 좌표를 즉각 서버 좌표로 강제 스냅
+      if (serverPlayer.teleportedAt && serverPlayer.teleportedAt > lastTeleportTimeRef.current) {
+        lastTeleportTimeRef.current = serverPlayer.teleportedAt;
+        if (localPlayerRef.current) {
+          localPlayerRef.current.x = serverPlayer.x;
+          localPlayerRef.current.y = serverPlayer.y;
+          localPlayerRef.current.speed = 0;
+          localPlayerRef.current.vx = 0;
+          localPlayerRef.current.vy = 0;
+        }
       }
     }
   }, [room.players, currentPlayerId, role]);
@@ -344,21 +358,67 @@ export function GameCanvas({
               const chosen = items[Math.floor(Math.random() * items.length)];
 
               if (chosen === 'teleport') {
-                // 미착석 다른 플레이어와 즉시 위치 교환
-                const otherUnseated = Object.values(room.players || {}).filter(
-                  other => other.id !== p.id && !other.isSeated
-                );
+                // 이미 착석된 학생 또는 좌석 구역 내에 들어간 학생 철저히 제외
+                const allSeats = Object.values(room.seatConfig?.seats || {});
+                const occupiedPlayerIds = new Set<string>();
+                allSeats.forEach(s => {
+                  if (s.occupiedBy) occupiedPlayerIds.add(s.occupiedBy);
+                });
+
+                // 특정 좌표가 좌석 상자 내부(입구 선 포함)에 있는지 판정
+                const isInsideAnySeat = (px: number, py: number) => {
+                  return allSeats.some(s => {
+                    const halfW = (s.width || 74) / 2 + 18;
+                    const halfH = (s.height || 64) / 2 + 25;
+                    return Math.abs(px - s.x) <= halfW && Math.abs(py - s.y) <= halfH;
+                  });
+                };
+
+                const otherUnseated = Object.values(room.players || {}).filter(other => {
+                  // 1. 자기 자신 제외
+                  if (other.id === p.id) return false;
+                  // 2. 착석 플래그 및 좌석 ID 점유자 제외
+                  if (other.isSeated || other.seatedId || occupiedPlayerIds.has(other.id)) return false;
+                  // 3. 주사위 대결 참여 중인 플레이어 제외
+                  if (
+                    room.activeDuel &&
+                    (room.activeDuel.player1.id === other.id || room.activeDuel.player2.id === other.id)
+                  ) {
+                    return false;
+                  }
+                  // 4. 물리적으로 이미 좌석 상자 안이나 입구 선에 진입해 있는 플레이어 제외
+                  if (isInsideAnySeat(other.x, other.y)) return false;
+
+                  return true;
+                });
+
+                // 안전한 대상이 있고, 해당 대상의 위치가 좌석 내부가 아닌 경우에만 텔레포트
                 if (otherUnseated.length > 0) {
                   const target = otherUnseated[Math.floor(Math.random() * otherUnseated.length)];
                   const tempX = p.x;
                   const tempY = p.y;
-                  p.x = target.x;
-                  p.y = target.y;
-                  SyncBridge.updatePlayerPosition(room.code, {
-                    ...target,
-                    x: tempX,
-                    y: tempY
-                  });
+                  const targetX = target.x;
+                  const targetY = target.y;
+
+                  // 내 물리 좌표 즉시 스냅 및 속도 정지
+                  p.x = targetX;
+                  p.y = targetY;
+                  p.speed = 0;
+                  p.vx = 0;
+                  p.vy = 0;
+
+                  // 동기화 브릿지를 통해 두 플레이어 위치 및 텔레포트 타임스탬프 원자적 갱신
+                  SyncBridge.teleportPlayers(
+                    room.code,
+                    p,
+                    target,
+                    { x: targetX, y: targetY },
+                    { x: tempX, y: tempY }
+                  );
+                } else {
+                  // 교환할 대상이 없으면 부스터로 대체 부여
+                  p.activeEffect = 'booster';
+                  p.effectEndTime = now + 2500;
                 }
               } else {
                 p.activeEffect = chosen;

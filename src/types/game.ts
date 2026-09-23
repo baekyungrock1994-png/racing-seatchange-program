@@ -94,6 +94,7 @@ export interface Player {
   // 아이템/디버프 상태
   activeEffect: ItemType | null;
   effectEndTime: number;   // Timestamp (ms)
+  teleportedAt?: number;   // 텔레포트 발생 시각 (클라이언트 물리 위치 강제 스냅용)
   
   lastActive: number;
 }
