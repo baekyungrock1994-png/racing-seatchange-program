@@ -1,0 +1,69 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "rooms": {
+      "$roomCode": {
+        // 로그인한(익명 포함) 사용자만 방을 읽을 수 있습니다.
+        ".read": "auth != null",
+
+        // 방은 아직 없는 코드로만 만들 수 있고, 이미 있는 방을 통째로 덮어쓸 수는 없습니다.
+        // (방 코드 5자리만 알면 남의 방 상태를 set 으로 통째로 교체하던 경로 차단)
+        ".write": "auth != null && !data.exists() && newData.child('code').val() === $roomCode",
+
+        "code": {
+          ".validate": "newData.isString() && newData.val() === $roomCode"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber()"
+        },
+
+        // 경기 상태 변경 (대기실 → 카운트다운 → 레이싱 → 종료)
+        "status": {
+          ".write": "auth != null",
+          ".validate": "newData.isString() && newData.val().matches(/^(LOBBY|COUNTDOWN|RACING|FINISHED)$/)"
+        },
+        "countdown": {
+          ".write": "auth != null",
+          ".validate": "newData.isNumber()"
+        },
+        "startedAt": {
+          ".write": "auth != null",
+          ".validate": "newData.isNumber()"
+        },
+        "finishedAt": {
+          ".write": "auth != null",
+          ".validate": "newData.isNumber()"
+        },
+
+        // 학생 카트 위치/상태
+        "players": {
+          ".write": "auth != null",
+          "$playerId": {
+            "id": {
+              ".validate": "newData.isString() && newData.val() === $playerId"
+            },
+            "x": { ".validate": "newData.isNumber()" },
+            "y": { ".validate": "newData.isNumber()" },
+            "angle": { ".validate": "newData.isNumber()" },
+            "speed": { ".validate": "newData.isNumber()" },
+            "vx": { ".validate": "newData.isNumber()" },
+            "vy": { ".validate": "newData.isNumber()" },
+            "lastActive": { ".validate": "newData.isNumber()" }
+          }
+        },
+
+        // 좌석 배치도 및 좌석 선점 결과
+        "seatConfig": {
+          ".write": "auth != null"
+        },
+
+        // 좌석 동시 진입 시 주사위 대결 상태
+        "activeDuel": {
+          ".write": "auth != null"
+        }
+      }
+    }
+  }
+}

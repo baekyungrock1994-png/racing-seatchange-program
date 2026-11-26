@@ -1,7 +1,7 @@
 // src/lib/firebase.ts
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getDatabase, Database } from 'firebase/database';
-import { getAuth, Auth } from 'firebase/auth';
+import { getAuth, signInAnonymously, Auth } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '',
@@ -28,6 +28,19 @@ if (typeof window !== 'undefined' && isFirebaseConfigured) {
   app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
   db = getDatabase(app);
   auth = getAuth(app);
+
+  // [보안] 데이터베이스 규칙이 "로그인한 사용자만" 허용하도록 잠겨 있습니다.
+  // 학생·교사 모두 구글 로그인을 쓰지 않으므로 익명 세션을 미리 만들어 둡니다.
+  // (Firebase 콘솔 > Authentication > Sign-in method > 익명(Anonymous) 을 켜야 동작하고,
+  //  꺼져 있으면 경고만 남기고 기존과 같이 동작합니다.)
+  if (!auth.currentUser) {
+    signInAnonymously(auth).catch((error) => {
+      console.warn(
+        '[Firebase] 익명 로그인을 사용할 수 없습니다. Firebase 콘솔에서 익명(Anonymous) 로그인을 켜 주세요:',
+        error && (error.code || error.message)
+      );
+    });
+  }
 }
 
 export { app, db, auth };
